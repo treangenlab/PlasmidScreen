@@ -34,7 +34,7 @@ def parse_backbone_map(file_path):
     return result_map
 
 
-def get_default_db_path(app_name: str, db_filename: str = "app.db") -> Path:
+def get_default_db_path(app_name: str, db_filename: str = "app.db") -> str:
     """
     Determines the platform-specific default data directory and returns
     the full path to the database file. Ensures the directory exists.
@@ -70,5 +70,5 @@ def get_default_db_path(app_name: str, db_filename: str = "app.db") -> Path:
     # Create the directory if it doesn't exist
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    return data_dir / db_filename
+    return str(data_dir)# / db_filename
 

@@ -1,3 +1,6 @@
+"""
+
+"""
 import abc
 import logging
 import subprocess
@@ -20,16 +23,18 @@ class Workflow(abc.ABC):
             logging.info(f"Running Kraken on {self.fasta_file}")
             output_file_path: Path = self.kraken_db.parent.joinpath("output.txt")
             report_file_path: Path = self.kraken_db.parent.joinpath("report.txt")
-            logging.debug(f"Running the command: kraken2 --db {self.kraken_db} --report-minimizer-data "
-                          f"--report {report_file_path} --output {output_file_path} --use-names {self.fasta_file}")
+            logging.info(f"Running the command: kraken2 --db {self.kraken_db} --report-minimizer-data "
+                          f"--report {report_file_path} --output {output_file_path} --use-names {self.fasta_file} "
+                         f"--threads {self.kraken_config.max_threads}")
             subprocess.check_call(
-                ["kraken2", "--db", self.kraken_db, "--report-minimzer-data", "--report", report_file_path,
-                 "--output", output_file_path, "--use-names", self.fasta_file])
+                ["kraken2", "--db", self.kraken_db, "--report-minimizer-data", "--report", report_file_path,
+                 "--output", output_file_path, "--use-names", self.fasta_file,
+                 "--threads", str(self.kraken_config.max_threads)])
         except subprocess.CalledProcessError:
             logging.info(f"CRITICAL ERROR: Failed to run kraken2 {self.fasta_file}.")
             sys.exit(1)
         logging.info("All files processed.")
-
+        self._post_process_kraken()
     @staticmethod
     def _check_windows(kmer_pos_info: str) -> bool:
         """
@@ -100,7 +105,7 @@ class Workflow(abc.ABC):
             seg_end = current_kmer_idx + count
 
             # If this segment is our target, add counts to appropriate windows
-            if tid == "Synthetic (taxid 1001)":
+            if tid == "1001":
                 # Find which windows this segment touches
                 first_window_idx = seg_start // window_size
                 last_window_idx = (seg_end - 1) // window_size
@@ -191,17 +196,20 @@ class Workflow(abc.ABC):
         report = open(self.kraken_db.parent.joinpath("post_processed_kraken_report.txt"), "w")
         with open(self.kraken_db.parent.joinpath("output.txt"), 'r') as kraken_file:
             entries = kraken_file.readlines()
-            for entry in tqdm(entries, tot=len(entries)):
+            for entry in tqdm(entries, total=len(entries)):
                 categories = entry.split("\t")
                 synthetic_boolean: bool = self._check_windows(categories[-1])
                 logging.debug(f"Entry: {categories[1]} found to be synthetic from windowing logic: {synthetic_boolean}")
                 if synthetic_boolean:
-                    report.write(f"Synthetic\t{categories[1]}")
+                    report.write(f"Synthetic\t{categories[1]}\n")
                 else:
                     synthetic_boolean = self._rescue_logic()
                     logging.debug(
                         f"Entry: {categories[1]} found to be synthetic from rescue logic: {synthetic_boolean}")
-
+                    if synthetic_boolean:
+                        report.write(f"Synthetic\t{categories[1]}\n")
+                    else:
+                        report.write(f"Natural\t{categories[1]}\n")
     def run(self):
         self.run_kraken()
         self._post_process_kraken()

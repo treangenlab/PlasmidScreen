@@ -24,7 +24,7 @@ class KrakenConfig:
     # 1. Define your parameters and their default values here
     db_path: Path = get_default_db_path("KrakenEng", "default_storage.db")
     kmer_size: int = 21
-    max_threads: int = 4
+    max_threads: int = 40
     masking: bool = True
     output_format: str = "csv"
     # must be equal to kmer_size for expected behavior to have kraken2 behave like kraken 1. As well as

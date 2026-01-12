@@ -3,7 +3,7 @@ import os
 import shutil
 import tempfile
 
-from mofongo.lib.const import custom_taxonomy
+from mofongo.lib.const import custom_taxonomy, KrakenConfig
 from pathlib import Path
 from typing import List
 import multiprocessing as mp
@@ -11,7 +11,7 @@ import subprocess
 import sys
 import glob
 import json
-
+from tqdm import tqdm
 valid_extensions = ('.fasta', '.fa', '.fna', '.faa')
 import logging
 import threading
@@ -23,7 +23,7 @@ def find_fastas(fasta_files_directory: Path) -> List[Path]:
     for root, dirs, files in os.walk(fasta_files_directory):
         for file in files:
             if file.lower().endswith(valid_extensions):
-                logging.debug(f"Added path: {Path(root).joinpath(file).as_posix()}")
+                logging.debug(f"Added path: {Path(root).joinpath(file)}")
                 fasta_paths.append(Path(root).joinpath(file))
             else:
                 logging.debug(f"Ignoring path: {Path(root).joinpath(file)}")
@@ -60,25 +60,27 @@ class BuildDB:
     """
 
     def __init__(self, working_directory: Path, kraken_db_name: str, natural_sequences: str, engineered_sequences: str,
-                 additional_sequences: str, threads_allowed: int):
+                 additional_sequences: str, kraken_config: KrakenConfig):
         self.working_directory = working_directory
         self.kraken_db = self.working_directory.joinpath(kraken_db_name)
+        self.kraken_db.mkdir(exist_ok=True)
         self.kraken_db.joinpath("taxonomy").mkdir(exist_ok=True)
-        self.thread_budget = threads_allowed
-        self.add_kraken_taxa_to_fasta(natural_sequences)
-        self.add_kraken_taxa_to_fasta(engineered_sequences)
-        self.add_kraken_taxa_to_fasta(additional_sequences)
-        self.add_sequence_to_kraken_db(natural_sequences,self.kraken_db)
-        self.add_sequence_to_kraken_db(engineered_sequences, self.kraken_db)
-        self.add_sequence_to_kraken_db(additional_sequences, self.kraken_db)
-        write_nodes_names(custom_taxonomy, self.kraken_db.joinpath("taxonomy").as_posix())
+        natural_sequences_with_kraken = self.add_kraken_taxa_to_fasta(natural_sequences)
+        engineered_sequences_with_kraken = self.add_kraken_taxa_to_fasta(engineered_sequences)
+        additional_sequences_with_kraken = self.add_kraken_taxa_to_fasta(additional_sequences)
+        self.add_sequence_to_kraken_db(natural_sequences_with_kraken,self.kraken_db)
+        self.add_sequence_to_kraken_db(engineered_sequences_with_kraken, self.kraken_db)
+        self.add_sequence_to_kraken_db(additional_sequences_with_kraken, self.kraken_db)
+        self.kraken_config = kraken_config
+        write_nodes_names(custom_taxonomy, str(self.kraken_db.joinpath("taxonomy")))
 
     @staticmethod
     def add_kraken_taxa_to_fasta(fasta_file):
         logging.info("Reformating headers for kraken compliance ")
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_out, open(fasta_file, "r") as f_in:
-
-            for line in f_in:
+            logging.debug(f"Modifying file {f_in}")
+            lines = f_in.readlines()
+            for line in tqdm(lines):
                 if line.startswith(">"):
                     # Parse the ID (everything after > up to the first space)
                     original_header = line.strip()
@@ -110,10 +112,11 @@ class BuildDB:
 
         # 2. At this point, the temp file is closed and saved on disk.
         #    Now, move the temp file OVER the original file.
-        shutil.move(temp_out.name, fasta_file)
+        new_file_path=fasta_file.split('.')[0]+"_modified_taxa.fasta"
 
-        logging.info(f"Successfully overwrote {fasta_file}")
-
+        shutil.move(temp_out.name, new_file_path)
+        logging.info(f"Successfully wrote {new_file_path}")
+        return new_file_path
     #def _preprocess_sequences(self, fasta_file):
     #    #with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_budget) as executor:
     #        executor.map(BuildDB.add_kraken_taxa_to_fasta, fasta_file)
@@ -163,7 +166,7 @@ class BuildDB:
                 "kraken2-build",
                 "--build",
                 "--db", self.kraken_db,
-                "--threads", str(self.thread_budget)
+                "--threads", str(self.kraken_config.max_threads)
             ])
             logging.info(f"Success! Database '{self.kraken_db}' is ready.")
         except subprocess.CalledProcessError:
