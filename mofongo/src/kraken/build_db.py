@@ -1,9 +1,16 @@
 import concurrent.futures
 import os
+import shutil
+import tempfile
+
 from mofongo.lib.const import custom_taxonomy
 from pathlib import Path
 from typing import List
 import multiprocessing as mp
+import subprocess
+import sys
+import glob
+import json
 
 valid_extensions = ('.fasta', '.fa', '.fna', '.faa')
 import logging
@@ -23,46 +30,142 @@ def find_fastas(fasta_files_directory: Path) -> List[Path]:
     return fasta_paths
 
 
+def write_nodes_names(taxonomy_list, output_dir="."):
+    nodes_path = os.path.join(output_dir, "nodes.dmp")
+    names_path = os.path.join(output_dir, "names.dmp")
+
+    with open(nodes_path, "w") as f_nodes, open(names_path, "w") as f_names:
+        for tax_id, parent_id, rank, name in taxonomy_list:
+            # Write to nodes.dmp
+            # Columns: tax_id | parent_tax_id | rank | embl_code | division_id | ...
+            # We pad with empty fields to match standard NCBI format breadth approximately
+            f_nodes.write(
+                f"{tax_id}\t|\t{parent_id}\t|\t{rank}\t|\t\t|\t8\t|\t0\t|\t1\t|\t0\t|\t0\t|\t0\t|\t0\t|\t0\t|\t\t|\n")
+
+            # Write to names.dmp
+            # Columns: tax_id | name_txt | unique_name | name_class
+            f_names.write(f"{tax_id}\t|\t{name}\t|\t\t|\tscientific name\t|\n")
+
+    logging.info(f"Generated {nodes_path} and {names_path}")
+
+
+# --- Configuration ---
+output_file = "combined_all.fasta"
+
+
+# --- 1. The Worker Function ---
 class BuildDB:
     """
     This class is responsible for building the kraken DB and
     """
 
-    def __init__(self, fasta_files_directory: Path, threads_allowed: int):
-        self._fasta_paths = find_fastas(fasta_files_directory)
+    def __init__(self, working_directory: Path, kraken_db_name: str, natural_sequences: str, engineered_sequences: str,
+                 additional_sequences: str, threads_allowed: int):
+        self.working_directory = working_directory
+        self.kraken_db = self.working_directory.joinpath(kraken_db_name)
+        self.kraken_db.joinpath("taxonomy").mkdir(exist_ok=True)
         self.thread_budget = threads_allowed
-        self._preprocess_sequences()
-
-    def _preprocess_sequences(self):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_budget) as executor:
-            executor.map()
-        pass
+        self.add_kraken_taxa_to_fasta(natural_sequences)
+        self.add_kraken_taxa_to_fasta(engineered_sequences)
+        self.add_kraken_taxa_to_fasta(additional_sequences)
+        self.add_sequence_to_kraken_db(natural_sequences,self.kraken_db)
+        self.add_sequence_to_kraken_db(engineered_sequences, self.kraken_db)
+        self.add_sequence_to_kraken_db(additional_sequences, self.kraken_db)
+        write_nodes_names(custom_taxonomy, self.kraken_db.joinpath("taxonomy").as_posix())
 
     @staticmethod
-    def _add_kraken_taxa_to_fasta(fasta_file, output_fasta_location):
+    def add_kraken_taxa_to_fasta(fasta_file):
         logging.info("Reformating headers for kraken compliance ")
-        with open(fasta_file, "r") as f_in, open(output_fasta_location, "w") as f_out:
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_out, open(fasta_file, "r") as f_in:
+
             for line in f_in:
                 if line.startswith(">"):
                     # Parse the ID (everything after > up to the first space)
                     original_header = line.strip()
+                    # Remove '>' for parsing, get the first word as ID
                     seq_id = original_header[1:].split()[0]
 
-                    # if seq_id in mapping_dict:
-                    #    tax_id = mapping_dict[seq_id]
-                    # Create new header: >OriginalID|kraken:taxid|TAXID OriginalDescription
-                    # We strip the '>' first, add the tag, then print
+                    # Extract the description part (everything after the ID)
+                    # We add +1 to account for the space after the ID
+                    description = original_header[len(seq_id) + 1:].strip()
+
+                    # Logic to Determine new header
                     if "IMGPR" in original_header:
-                        new_header = f">{seq_id}|kraken:taxid|1012 {original_header[len(seq_id) + 1:]}\n"
-                        logging.debug(f"Added kraken:taxid|1012 to {original_header}")
+                        tax_id = "1012"
                     elif "Escherichia coli" in original_header:
-                        new_header = f">{seq_id}|kraken:taxid|562 {original_header[len(seq_id) + 1:]}\n"
-                        logging.debug(f"Added kraken:taxid|562 to {original_header}")
+                        tax_id = "562"
                     else:
-                        new_header = f">{seq_id}|kraken:taxid|1001 {original_header[len(seq_id) + 1:]}\n"
-                        logging.debug(f"Added kraken:taxid|1001 to {original_header}")
-                    f_out.write(new_header)
+                        tax_id = "1001"
+
+                    # Construct new header
+                    new_header = f">{seq_id}|kraken:taxid|{tax_id} {description}\n"
+                    logging.debug(f"Modified header: {new_header.strip()}")
+
+                    temp_out.write(new_header)
+
                 else:
-                    if line != "\n":
-                        # Write sequence lines unchanged
-                        f_out.write(line)
+                    # Handle sequence lines
+                    if line.strip():  # Ensure we don't write purely empty lines if undesired
+                        temp_out.write(line)
+
+        # 2. At this point, the temp file is closed and saved on disk.
+        #    Now, move the temp file OVER the original file.
+        shutil.move(temp_out.name, fasta_file)
+
+        logging.info(f"Successfully overwrote {fasta_file}")
+
+    #def _preprocess_sequences(self, fasta_file):
+    #    #with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_budget) as executor:
+    #        executor.map(BuildDB.add_kraken_taxa_to_fasta, fasta_file)
+    #    with open(self.working_directory.parent.joinpath("concatenated_sequences.fasta"), "w") as outfile:
+    #        for filename in fasta_paths:
+    #            logging.info(f"Processing {filename}...")
+    #        try:
+    #            with open(filename, "r") as infile:
+    #                # Read the file line by line (memory efficient)
+    #                for line in infile:
+    #                    outfile.write(line)
+    #        except FileNotFoundError:
+    #            logging.debug(f"Warning: Could not find {filename}, skipping.")
+    #    logging.info(f"Done! Created {output_file}")
+
+    @staticmethod
+    def add_sequence_to_kraken_db(sequence, db_name):
+        """
+        Wrapper to add sequences and build a Kraken2 DB.
+
+        :param db_name: Path/Name of the Kraken2 database directory
+        :param input_pattern: Wildcard string for input files (e.g., "genomes/*.fasta")
+        :param threads: Number of CPU threads to use for the build step
+        """
+
+        # Get list of files based on pattern
+        # files = glob.glob(input_pattern)
+
+        try:
+            logging.info(f"Adding {sequence} to kraken db {db_name}")
+            # subprocess.check_call raises an error if the command fails
+            subprocess.check_call([
+                "kraken2-build",
+                "--add-to-library", sequence,
+                "--db", db_name
+            ])
+        except subprocess.CalledProcessError:
+            logging.error(f"CRITICAL ERROR: Failed to add {sequence}. Stopping.")
+            sys.exit(1)
+
+        logging.info("File added.")
+
+    def build_kraken_db(self):
+        # 2. Build database
+        try:
+            subprocess.check_call([
+                "kraken2-build",
+                "--build",
+                "--db", self.kraken_db,
+                "--threads", str(self.thread_budget)
+            ])
+            logging.info(f"Success! Database '{self.kraken_db}' is ready.")
+        except subprocess.CalledProcessError:
+            logging.info("Error: The build step failed.")
+            sys.exit(1)
