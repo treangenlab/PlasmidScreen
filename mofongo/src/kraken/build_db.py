@@ -5,7 +5,7 @@ import tempfile
 
 from mofongo.lib.const import custom_taxonomy, KrakenConfig
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import multiprocessing as mp
 import subprocess
 import sys
@@ -60,17 +60,18 @@ class BuildDB:
     """
 
     def __init__(self, working_directory: Path, kraken_db_name: str, natural_sequences: str, engineered_sequences: str,
-                 additional_sequences: str, kraken_config: KrakenConfig):
+                 additional_sequences: Optional[str], kraken_config: KrakenConfig):
         self.working_directory = working_directory
         self.kraken_db = self.working_directory.joinpath(kraken_db_name)
         self.kraken_db.mkdir(exist_ok=True)
         self.kraken_db.joinpath("taxonomy").mkdir(exist_ok=True)
         natural_sequences_with_kraken = self.add_kraken_taxa_to_fasta(natural_sequences)
         engineered_sequences_with_kraken = self.add_kraken_taxa_to_fasta(engineered_sequences)
-        additional_sequences_with_kraken = self.add_kraken_taxa_to_fasta(additional_sequences)
         self.add_sequence_to_kraken_db(natural_sequences_with_kraken,self.kraken_db)
         self.add_sequence_to_kraken_db(engineered_sequences_with_kraken, self.kraken_db)
-        self.add_sequence_to_kraken_db(additional_sequences_with_kraken, self.kraken_db)
+        if additional_sequences is not None:
+            additional_sequences_with_kraken = self.add_kraken_taxa_to_fasta(additional_sequences)
+            self.add_sequence_to_kraken_db(additional_sequences_with_kraken, self.kraken_db)
         self.kraken_config = kraken_config
         write_nodes_names(custom_taxonomy, str(self.kraken_db.joinpath("taxonomy")))
 

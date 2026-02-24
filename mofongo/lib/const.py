@@ -16,6 +16,26 @@ default_kmer_size = 21
 
 
 @dataclass
+class MetaMDBGConfig:
+    """
+    MetaMDBG configuration object for LR assembly
+    """
+    ont_mode: bool = True
+    pacbio_mode: bool = False
+    max_threads: int = 40
+    kmer_size: int = 15
+
+
+@dataclass
+class MegahitConfig:
+    """
+    Megahit Configuration object for SR assembly
+    """
+    paired = True
+    max_threads = 40
+
+
+@dataclass
 class KrakenConfig:
     """
     Configuration object.
