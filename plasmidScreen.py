@@ -5,17 +5,16 @@ from pathlib import Path
 from rich.logging import RichHandler
 from typing import Annotated
 
-from mofongo.lib.const import KrakenConfig, MetaMDBGConfig, MegahitConfig
-from mofongo.lib.funcs import get_default_db_path
-from mofongo.src.kraken.build_db import BuildDB
-from mofongo.src.workflow.workflow import LRWorkflow, SRWorkflow
+from plasmidScreen.lib.const import KrakenConfig, MetaMDBGConfig, MegahitConfig
+from plasmidScreen.lib.funcs import get_default_db_path
+from plasmidScreen.src.kraken.build_db import BuildDB
+from plasmidScreen.src.workflow.workflow import LRWorkflow, SRWorkflow
 
 FORMAT = "%(message)s"
 logging.basicConfig(level=logging.INFO, format=FORMAT, datefmt="[%X]", handlers=[RichHandler()])
 app = typer.Typer(pretty_exceptions_show_locals=False,
-                  help="Welcome to KrakenEng. A tool to detect"
-                       " engineered reads. We currently "
-                       "support long reads and assemblies.")
+                  help="Welcome to PlasmidScreen. A k-mer based tool to detect"
+                       " engineered DNA.")
 
 DEFAULT_DB_PATH = get_default_db_path("KrakenEng")
 

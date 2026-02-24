@@ -2,7 +2,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
 
-from mofongo.lib.funcs import get_default_db_path
+from plasmidScreen.lib.funcs import get_default_db_path
 
 custom_taxonomy = [
     (1, 1, "no rank", "root"),

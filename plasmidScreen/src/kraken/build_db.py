@@ -3,7 +3,7 @@ import os
 import shutil
 import tempfile
 
-from mofongo.lib.const import custom_taxonomy, KrakenConfig
+from plasmidScreen.lib.const import custom_taxonomy, KrakenConfig
 from pathlib import Path
 from typing import List, Optional
 import multiprocessing as mp
