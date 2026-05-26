@@ -7,7 +7,15 @@ import sys
 from pathlib import Path
 from tqdm import tqdm
 import numpy as np
-from numba import jit
+try:
+    from numba import jit
+except ModuleNotFoundError:  # pragma: no cover
+    def jit(*_args, **_kwargs):  # type: ignore
+        def _wrap(fn):
+            return fn
+        return _wrap
+
+from plasmidScreen.src.analyze_codon_usage import write_codon_adaptation_tsv
 
 
 @jit(nopython=True)
@@ -70,7 +78,7 @@ def fast_window_logic(tids, counts, window_size: int, threshold: int):
 class Workflow:
 
     def __init__(self, fasta_file: str, output_report_path: str, kraken_db: str, threads: int, kraken_raw_output: str,
-                 window_size: int = 200, engineered_kmer_threshold: int = 15):
+                 window_size: int = 200, engineered_kmer_threshold: int = 15, codon_usage_output_path: str | None = None):
         self.fasta_file: Path = Path(fasta_file)
         self.report_output_path = Path(output_report_path)
         self.kraken_db = Path(kraken_db)
@@ -78,6 +86,7 @@ class Workflow:
         self.threshold = engineered_kmer_threshold
         self.window_size = window_size
         self.max_threads = threads
+        self.codon_usage_output_path = Path(codon_usage_output_path) if codon_usage_output_path else None
 
     def run_kraken(self, ):
         try:
@@ -119,17 +128,48 @@ class Workflow:
 
     def scan_engineered_blocks_kraken(self):
         report = open(self.report_output_path, "w")
+        any_synthetic = False
+        synthetic_count = 0
+        total_count = 0
+        natural_read_ids: set[str] = set()
         with open(self.kraken_output_path, 'r') as kraken_file:
             entries = kraken_file.readlines()
             for entry in tqdm(entries, total=len(entries)):
                 categories = entry.split("\t")
                 synthetic_boolean: bool = self.parse_and_run(categories[-1], self.window_size, self.threshold)
                 logging.debug(f"Entry: {categories[1]} found to be synthetic from windowing logic: {synthetic_boolean}")
+                total_count += 1
                 if synthetic_boolean:
+                    any_synthetic = True
+                    synthetic_count += 1
                     report.write(f"Synthetic\t{categories[1]}\n")
                 else:
+                    natural_read_ids.add(categories[1])
                     report.write(f"Natural\t{categories[1]}\n")
+        report.close()
+        logging.info(f"Engineered k-mer scan complete: {synthetic_count}/{total_count} synthetic reads.")
+        return natural_read_ids, any_synthetic
 
     def run(self):
         self.run_kraken()
-        self.scan_engineered_blocks_kraken()
+        natural_read_ids, engineered_detected = self.scan_engineered_blocks_kraken()
+
+        out_path = self.codon_usage_output_path
+        if out_path is None:
+            out_path = self.report_output_path.with_suffix(self.report_output_path.suffix + ".codon_usage.tsv")
+
+        if not natural_read_ids:
+            logging.info("No reads labeled Natural; skipping codon usage analysis.")
+            return
+
+        if engineered_detected:
+            logging.info("Engineered reads detected; running codon usage only on reads labeled Natural.")
+
+        logging.info(f"Running codon usage analysis on {len(natural_read_ids)} Natural reads to {out_path}")
+        write_codon_adaptation_tsv(
+            reads_path=str(self.fasta_file),
+            kraken_path=str(self.kraken_output_path),
+            output_path=str(out_path),
+            kmer_len=35,
+            include_read_ids=natural_read_ids,
+        )
