@@ -70,6 +70,9 @@ class ReadFlagDetail:
     read_id: str
     kmer_label: Literal["Natural", "Synthetic"]
     engineered_by_kmer_scan: bool
+    engineered_kmer_max_in_window: Optional[int] = None
+    engineered_kmer_threshold: Optional[int] = None
+    engineered_kmer_window_size: Optional[int] = None
     cai_vs_host: Optional[float] = None
     engineered_by_codon_cai: Optional[bool] = None
     codon_cai_threshold: Optional[float] = None

@@ -37,6 +37,7 @@ def fast_window_logic(tids, counts, window_size: int, threshold: int):
     eng_count = 0
     non_eng_count = 0
     total_count = 0
+    max_eng_seen = 0
 
     for i in range(len(tids)):
         tid = tids[i]
@@ -71,10 +72,13 @@ def fast_window_logic(tids, counts, window_size: int, threshold: int):
                     else:
                         eng_count = 0
 
-            if eng_count >= threshold:
-                return True
+            if eng_count > max_eng_seen:
+                max_eng_seen = eng_count
 
-    return False
+            if eng_count >= threshold:
+                return True, max_eng_seen
+
+    return False, max_eng_seen
 
 
 class Workflow:
@@ -145,7 +149,7 @@ class Workflow:
         logging.info("All files processed.")
 
     @staticmethod
-    def parse_and_run(kmer_pos_info: str, window_size: int, threshold: int) -> bool:
+    def parse_and_run(kmer_pos_info: str, window_size: int, threshold: int) -> tuple[bool, int]:
         raw_data = kmer_pos_info.replace("|:|", "").split()
 
         n = len(raw_data)
@@ -167,10 +171,11 @@ class Workflow:
         with open(self.kraken_output_path, "r") as kraken_file, open(
             self.report_output_path, "w"
         ) as report:
+            report.write("Label\tRead_ID\tMethods\tEngineeredKmerMaxInWindow\tKmerThreshold\tWindowSize\n")
             entries = kraken_file.readlines()
             for entry in tqdm(entries, total=len(entries)):
                 categories = entry.split("\t")
-                synthetic_boolean = self.parse_and_run(
+                synthetic_boolean, max_eng = self.parse_and_run(
                     categories[-1], self.window_size, self.threshold
                 )
                 read_id = categories[1]
@@ -182,7 +187,9 @@ class Workflow:
                     label = "Natural"
                 result.labels.append(ReadEngineeringLabel(read_id=read_id, label=label))
                 methods = "engineered_kmer_scan" if label == "Synthetic" else ""
-                report.write(f"{label}\t{read_id}\t{methods}\n")
+                report.write(
+                    f"{label}\t{read_id}\t{methods}\t{max_eng}\t{self.threshold}\t{self.window_size}\n"
+                )
 
         logging.info(
             f"Engineered k-mer scan complete: {result.synthetic_count}/"
@@ -240,6 +247,18 @@ class Workflow:
             codon_path = Path(codon_path_str)
 
         codon_by_read: dict[str, CodonAdaptationResult] = {r.read_id: r for r in codon_results}
+
+        # k-mer evidence lookup (max engineered k-mers observed in any window)
+        kmer_max_by_read: dict[str, int] = {}
+        with open(self.kraken_output_path, "r") as f:
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 2:
+                    continue
+                rid = parts[1]
+                hit, max_eng = self.parse_and_run(parts[-1], self.window_size, self.threshold)
+                kmer_max_by_read[rid] = max_eng
+
         per_read: list[ReadFlagDetail] = []
         for lbl in engineered_scan.labels:
             codon = codon_by_read.get(lbl.read_id)
@@ -253,6 +272,9 @@ class Workflow:
                     read_id=lbl.read_id,
                     kmer_label=lbl.label,
                     engineered_by_kmer_scan=(lbl.label == "Synthetic"),
+                    engineered_kmer_max_in_window=kmer_max_by_read.get(lbl.read_id),
+                    engineered_kmer_threshold=self.threshold,
+                    engineered_kmer_window_size=self.window_size,
                     cai_vs_host=cai,
                     engineered_by_codon_cai=engineered_by_codon,
                     codon_cai_threshold=self.codon_cai_engineered_threshold,

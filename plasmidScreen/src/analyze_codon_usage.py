@@ -280,7 +280,7 @@ def write_codon_adaptation_tsv(
         else:
             header = (
                 "Read_ID\tOverall_TaxID\tCDS_Strand\tCDS_Range\tCDS_TaxID\tHost_TaxID\t"
-                "Reference_TaxID\tCDS_Len_bp\tCAI_vs_Host\tEngineered_By_Codon_CAI"
+                "Reference_TaxID\tCDS_Len_bp\tCAI_vs_Host\tCodon_CAI_Threshold\tEngineered_By_Codon_CAI"
             )
             f.write(header + "\n")
             for r in results:
@@ -292,7 +292,7 @@ def write_codon_adaptation_tsv(
                 f.write(
                     f"{r.read_id}\t{r.overall_taxid}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
                     f"{r.cds_taxid}\t{r.host_taxid}\t{r.reference_taxid or 'NA'}\t{r.cds_len_bp}\t"
-                    f"{cai_s}\t{engineered}\n"
+                    f"{cai_s}\t{cai_engineered_threshold}\t{engineered}\n"
                 )
     return str(out), results
 

@@ -17,7 +17,9 @@ from plasmidScreen.src.plasmidScreen import Workflow
 )
 def test_parse_and_run_synthetic_detection(kmer_field: str, expected: bool) -> None:
     result = Workflow.parse_and_run(kmer_field, window_size=200, threshold=25)
-    assert result is expected
+    hit, max_eng = result
+    assert hit is expected
+    assert isinstance(max_eng, int)
 
 
 def test_scan_engineered_blocks_integration(
