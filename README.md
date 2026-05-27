@@ -40,9 +40,13 @@ screen_result = run_screen(
     "kraken.out",
     kraken_db="/path/to/kraken/db",
     codon_usage_dir="codon_usage/",
+    # Optional: flag engineered by CAI threshold (CAI < threshold)
+    codon_cai_engineered_threshold=0.7,
 )
 print(screen_result.engineered_scan.synthetic_count)
 print(len(screen_result.codon_adaptation))
+for r in screen_result.per_read:
+    print(r.read_id, r.engineered_methods, r.engineered_kmer_max_in_window, r.cai_vs_host)
 ```
 
 ### CLI — build reference (network required)

@@ -162,15 +162,21 @@ Effective k-mers per window: `window_size - 21 + 1` (Kraken k=21 minimizers in w
 
 **Path:** user-provided `output_report_path` (e.g. `report.txt`)
 
-| Column 1 | Column 2 | Meaning |
-|----------|----------|---------|
-| `Natural` or `Synthetic` | Read ID | Per-read engineering label |
+| Column | Type | Meaning |
+|--------|------|---------|
+| Label | `Natural` \| `Synthetic` | Per-read engineering label |
+| Read_ID | string | Read identifier |
+| Methods | string | Method tags (e.g. `engineered_kmer_scan`) |
+| EngineeredKmerMaxInWindow | int | Max engineered-kmer count observed in any window |
+| KmerThreshold | int | Threshold used to label Synthetic |
+| WindowSize | int | Window size used for scanning |
 
 **Example**
 
 ```text
-Natural	read_natural_1
-Synthetic	read_synthetic_1
+Label	Read_ID	Methods	EngineeredKmerMaxInWindow	KmerThreshold	WindowSize
+Natural	read_natural_1		0	25	200
+Synthetic	read_synthetic_1	engineered_kmer_scan	35	25	200
 ```
 
 ### 3.2 Codon usage report (TSV)
@@ -190,6 +196,8 @@ Only **Natural** reads are included when run via full `screen` workflow.
 | Reference_TaxID | string | Taxid whose codon table was used (after lineage resolve) |
 | CDS_Len_bp | int | CDS length in bp |
 | CAI_vs_Host | float or `NA` | Codon Adaptation Index vs host reference (0–1) |
+| Codon_CAI_Threshold | float | Present only when codon-CAI flagging is enabled |
+| Engineered_By_Codon_CAI | bool or `NA` | Present only when codon-CAI flagging is enabled |
 
 **Example**
 
@@ -206,6 +214,7 @@ read_natural_1	562	+	0-12	562	562	562	12	0.7234
 |-------|------|-------------|
 | `engineered_scan` | `EngineeredScanResult` | All read labels and counts |
 | `codon_adaptation` | `list[CodonAdaptationResult]` | Natural reads only (if enabled) |
+| `per_read` | `list[ReadFlagDetail]` | Per-read method attribution and evidence |
 | `engineered_report_path` | `Path \| None` | Written engineered report |
 | `codon_usage_report_path` | `Path \| None` | Written codon TSV |
 
@@ -229,6 +238,22 @@ read_natural_1	562	+	0-12	562	562	562	12	0.7234
 |-------|------|--------|
 | `read_id` | str | |
 | `label` | str | `"Natural"` \| `"Synthetic"` |
+
+#### `ReadFlagDetail`
+
+Per-read attribution and evidence for engineered calls.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `read_id` | str | Read ID |
+| `kmer_label` | `"Natural"` \| `"Synthetic"` | Label from engineered k-mer scan |
+| `engineered_by_kmer_scan` | bool | True if engineered k-mer scan flagged |
+| `engineered_kmer_max_in_window` | int \| None | Max engineered-kmer count observed |
+| `engineered_kmer_threshold` | int \| None | Threshold used |
+| `engineered_kmer_window_size` | int \| None | Window size used |
+| `cai_vs_host` | float \| None | CAI score vs host |
+| `codon_cai_threshold` | float \| None | Threshold used for codon CAI flagging |
+| `engineered_by_codon_cai` | bool \| None | True if CAI < threshold |
 
 #### `BuildCodonReferenceResult`
 
@@ -286,6 +311,7 @@ screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_RAW_OUTPUT [KRAKEN_DB_PATH]
   --threshold INT
   --codon-usage-output PATH
   --codon-usage-dir PATH
+  --codon-cai-threshold FLOAT
   --threads INT
 ```
 
