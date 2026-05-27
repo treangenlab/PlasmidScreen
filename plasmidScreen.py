@@ -32,6 +32,8 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
                                                                        "Only produced for reads labeled Natural.")] = None,
            codon_usage_dir: Annotated[str, typer.Option("--codon-usage-dir",
                                                         help="Directory with codon_tables.json reference data.")] = DEFAULT_CODON_USAGE_DIR,
+           codon_cai_engineered_threshold: Annotated[float | None, typer.Option("--codon-cai-threshold",
+                                                                                help="If set, flag reads as engineered by codon CAI when CAI < threshold.")] = None,
            kraken_db_path: Annotated[str, typer.Argument(help="Engineered KrakenDB")] = DEFAULT_DB_PATH,
            threads: Annotated[int, typer.Option("--threads", help="Available threads to use.")] = 4,
            verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose logging.")] = False
@@ -46,6 +48,7 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
         engineered_kmer_threshold=engineered_k_mer_threshold,
         codon_usage_output_path=codon_usage_output,
         codon_usage_dir=codon_usage_dir,
+        codon_cai_engineered_threshold=codon_cai_engineered_threshold,
     )
 
 

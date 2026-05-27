@@ -58,5 +58,31 @@ class ScreenResult:
 
     engineered_scan: EngineeredScanResult
     codon_adaptation: list[CodonAdaptationResult] = field(default_factory=list)
+    per_read: list["ReadFlagDetail"] = field(default_factory=list)
     engineered_report_path: Optional[Path] = None
     codon_usage_report_path: Optional[Path] = None
+
+
+@dataclass(frozen=True)
+class ReadFlagDetail:
+    """Per-read summary of which method(s) flagged engineered."""
+
+    read_id: str
+    kmer_label: Literal["Natural", "Synthetic"]
+    engineered_by_kmer_scan: bool
+    cai_vs_host: Optional[float] = None
+    engineered_by_codon_cai: Optional[bool] = None
+    codon_cai_threshold: Optional[float] = None
+
+    @property
+    def engineered_methods(self) -> list[str]:
+        methods: list[str] = []
+        if self.engineered_by_kmer_scan:
+            methods.append("engineered_kmer_scan")
+        if self.engineered_by_codon_cai:
+            methods.append("codon_cai")
+        return methods
+
+    @property
+    def engineered_any(self) -> bool:
+        return bool(self.engineered_by_kmer_scan or self.engineered_by_codon_cai)

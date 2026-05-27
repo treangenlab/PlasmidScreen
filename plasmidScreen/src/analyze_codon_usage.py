@@ -260,6 +260,7 @@ def write_codon_adaptation_tsv(
     include_read_ids: Optional[set[str]] = None,
     codon_usage_dir: Optional[Union[str, Path]] = None,
     codon_usage_store: Optional[CodonUsageStore] = None,
+    cai_engineered_threshold: Optional[float] = None,
 ) -> tuple[str, list[CodonAdaptationResult]]:
     """Write codon adaptation TSV; returns (output path, structured results)."""
     results = analyze_codon_adaptation(
@@ -273,8 +274,26 @@ def write_codon_adaptation_tsv(
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w") as f:
-        for line in codon_adaptation_to_tsv_lines(results):
-            f.write(line + "\n")
+        if cai_engineered_threshold is None:
+            for line in codon_adaptation_to_tsv_lines(results):
+                f.write(line + "\n")
+        else:
+            header = (
+                "Read_ID\tOverall_TaxID\tCDS_Strand\tCDS_Range\tCDS_TaxID\tHost_TaxID\t"
+                "Reference_TaxID\tCDS_Len_bp\tCAI_vs_Host\tEngineered_By_Codon_CAI"
+            )
+            f.write(header + "\n")
+            for r in results:
+                cai = r.cai_vs_host
+                cai_s = f"{cai:.4f}" if cai is not None else "NA"
+                engineered = (
+                    "NA" if cai is None else str(cai < cai_engineered_threshold)
+                )
+                f.write(
+                    f"{r.read_id}\t{r.overall_taxid}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
+                    f"{r.cds_taxid}\t{r.host_taxid}\t{r.reference_taxid or 'NA'}\t{r.cds_len_bp}\t"
+                    f"{cai_s}\t{engineered}\n"
+                )
     return str(out), results
 
 

@@ -19,6 +19,7 @@ from plasmidScreen.lib.codon_usage_db import default_codon_usage_dir
 from plasmidScreen.lib.models import (
     CodonAdaptationResult,
     EngineeredScanResult,
+    ReadFlagDetail,
     ReadEngineeringLabel,
     ScreenResult,
 )
@@ -92,6 +93,7 @@ class Workflow:
         run_kraken: bool = True,
         run_codon_usage: bool = True,
         kmer_len: int = 35,
+        codon_cai_engineered_threshold: float | None = None,
     ):
         self.fasta_file: Path = Path(fasta_file)
         self.report_output_path = Path(output_report_path)
@@ -107,6 +109,7 @@ class Workflow:
         self.run_kraken = run_kraken
         self.run_codon_usage = run_codon_usage
         self.kmer_len = kmer_len
+        self.codon_cai_engineered_threshold = codon_cai_engineered_threshold
 
     def run_kraken(self) -> None:
         try:
@@ -178,7 +181,8 @@ class Workflow:
                     result.natural_count += 1
                     label = "Natural"
                 result.labels.append(ReadEngineeringLabel(read_id=read_id, label=label))
-                report.write(f"{label}\t{read_id}\n")
+                methods = "engineered_kmer_scan" if label == "Synthetic" else ""
+                report.write(f"{label}\t{read_id}\t{methods}\n")
 
         logging.info(
             f"Engineered k-mer scan complete: {result.synthetic_count}/"
@@ -231,12 +235,34 @@ class Workflow:
                 include_read_ids=engineered_scan.natural_read_ids,
                 codon_usage_dir=self.codon_usage_dir,
                 kmer_len=self.kmer_len,
+                cai_engineered_threshold=self.codon_cai_engineered_threshold,
             )
             codon_path = Path(codon_path_str)
+
+        codon_by_read: dict[str, CodonAdaptationResult] = {r.read_id: r for r in codon_results}
+        per_read: list[ReadFlagDetail] = []
+        for lbl in engineered_scan.labels:
+            codon = codon_by_read.get(lbl.read_id)
+            cai = codon.cai_vs_host if codon else None
+            engineered_by_codon: bool | None = None
+            if cai is not None and self.codon_cai_engineered_threshold is not None:
+                engineered_by_codon = cai < self.codon_cai_engineered_threshold
+
+            per_read.append(
+                ReadFlagDetail(
+                    read_id=lbl.read_id,
+                    kmer_label=lbl.label,
+                    engineered_by_kmer_scan=(lbl.label == "Synthetic"),
+                    cai_vs_host=cai,
+                    engineered_by_codon_cai=engineered_by_codon,
+                    codon_cai_threshold=self.codon_cai_engineered_threshold,
+                )
+            )
 
         return ScreenResult(
             engineered_scan=engineered_scan,
             codon_adaptation=codon_results,
+            per_read=per_read,
             engineered_report_path=self.report_output_path,
             codon_usage_report_path=codon_path,
         )

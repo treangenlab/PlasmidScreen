@@ -44,4 +44,4 @@ def test_scan_engineered_blocks_integration(
     assert labels["read_unclassified"] == "Natural"
     text = report.read_text()
     assert "Natural\tread_natural_1" in text
-    assert "Synthetic\tread_synthetic_1" in text
+    assert "Synthetic\tread_synthetic_1\tengineered_kmer_scan" in text

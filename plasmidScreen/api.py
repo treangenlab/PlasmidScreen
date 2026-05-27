@@ -53,6 +53,7 @@ def run_screen(
     run_codon_usage: bool = True,
     codon_usage_output_path: str | Path | None = None,
     kmer_len: int = 35,
+    codon_cai_engineered_threshold: float | None = None,
 ) -> ScreenResult:
     """
     Run engineered k-mer screening and optional codon adaptation analysis.
@@ -78,5 +79,6 @@ def run_screen(
         run_kraken=run_kraken,
         run_codon_usage=run_codon_usage,
         kmer_len=kmer_len,
+        codon_cai_engineered_threshold=codon_cai_engineered_threshold,
     )
     return workflow.run()
