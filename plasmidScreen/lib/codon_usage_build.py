@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import logging
-import re
 import tarfile
-import urllib.error
 import urllib.request
+from importlib import resources
 from pathlib import Path
 from typing import Iterable
 
@@ -14,48 +13,43 @@ from plasmidScreen.lib.codon_usage_db import (
     CodonUsageStore,
     parse_taxonomy_nodes,
 )
+from plasmidScreen.lib.codon_usage_sources import (
+    default_csdb_archive_path,
+    download_csdb_archive,
+    import_csdb_taxids,
+)
 from plasmidScreen.lib.models import BuildCodonReferenceResult
 
-KAZUSA_URL = (
-    "http://www.kazusa.or.jp/codon/cgi-bin/showcodon.cgi"
-    "?aa=1&style=N&species={taxid}"
-)
-KAZUSA_CODON_RE = re.compile(r"([ATGCU]{3})\s+([A-Z*])\s+([\d.]+)")
 NCBI_TAXDUMP_URL = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
 
-from Bio.Data import CodonTable
 
-_CODON_TO_AA = CodonTable.unambiguous_dna_by_id[1].forward_table.copy()
-for _stop in ("TAA", "TAG", "TGA"):
-    _CODON_TO_AA[_stop] = "*"
-
-
-def _rna_to_dna(codon: str) -> str:
-    return codon.replace("U", "T").replace("u", "t")
-
-
-def fetch_kazusa_frequencies(taxid: str | int, timeout: int = 30) -> dict[str, float]:
-    """Download codon relative frequencies from Kazusa (build-time only)."""
-    url = KAZUSA_URL.format(taxid=int(taxid))
+def _load_taxids_from_package_file(filename: str) -> list[str]:
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as handle:
-            html = handle.read().decode(errors="replace")
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Failed to fetch Kazusa codon table for taxid {taxid}: {exc}") from exc
+        text = resources.files("plasmidScreen.data").joinpath(filename).read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError, TypeError, OSError):
+        return []
+    taxids: list[str] = []
+    for line in text.splitlines():
+        line = line.strip().split("#")[0].strip()
+        if line:
+            taxids.append(line)
+    return taxids
 
-    if "not found" in html.lower() and "<title>" in html.lower():
-        raise RuntimeError(f"No Kazusa codon usage table for taxonomy ID {taxid}")
 
-    frequencies: dict[str, float] = {}
-    for codon, _aa, rel_freq in KAZUSA_CODON_RE.findall(html):
-        dna_codon = _rna_to_dna(codon)
-        if dna_codon in _CODON_TO_AA and _CODON_TO_AA[dna_codon] != "*":
-            frequencies[dna_codon] = float(rel_freq)
+def default_reference_taxids() -> list[str]:
+    """
+    Taxonomy IDs for a full default build (no --taxids / --kraken-output).
 
-    if not frequencies:
-        raise RuntimeError(f"Could not parse Kazusa codon table for taxid {taxid}")
-
-    return frequencies
+    Loads common_codon_taxids.txt (broad set) plus default_codon_taxids.txt (minimal core).
+    """
+    combined = set(_load_taxids_from_package_file("common_codon_taxids.txt"))
+    combined.update(_load_taxids_from_package_file("default_codon_taxids.txt"))
+    if not combined:
+        combined = {
+            "9606", "10090", "511145", "4932", "7227", "6239",
+            "287", "1282", "1313", "1288",
+        }
+    return sorted(combined)
 
 
 def download_ncbi_taxdump(dest_dir: Path) -> Path:
@@ -80,19 +74,36 @@ def download_ncbi_taxdump(dest_dir: Path) -> Path:
 
 def build_codon_reference(
     data_dir: str | Path,
-    taxids: Iterable[str | int],
+    taxids: Iterable[str | int] | None = None,
     *,
     include_taxonomy: bool = True,
     taxdump_dir: str | Path | None = None,
-    fetch_timeout: int = 30,
+    use_default_taxids: bool = True,
+    csdb_archive: str | Path | None = None,
+    download_csdb: bool = True,
+    gene_set: str = "nuclear",
 ) -> BuildCodonReferenceResult:
     """
     Build codon_tables.json (and optional taxonomy_parents.json) for airgapped use.
 
-    Must be run on a machine with network access before screening.
+    Imports codon usage from the Codon Statistics Database (CSDB) bulk tar archive.
+    Must be run on a machine with the CSDB archive available (downloaded automatically
+    when download_csdb=True) before screening.
     """
     data_dir = Path(data_dir)
-    taxid_list = sorted({str(t) for t in taxids if str(t) not in ("0", "")})
+    if taxids is None:
+        if not use_default_taxids:
+            raise ValueError(
+                "No taxids provided. Pass taxids=..., or set use_default_taxids=True."
+            )
+        taxid_list = default_reference_taxids()
+        logging.info("Using %d default reference taxid(s)", len(taxid_list))
+    else:
+        taxid_list = sorted({str(t) for t in taxids if str(t) not in ("0", "")})
+
+    archive_path = Path(csdb_archive) if csdb_archive else default_csdb_archive_path()
+    if download_csdb and not archive_path.is_file():
+        download_csdb_archive(archive_path)
 
     added: list[str] = []
     skipped: list[str] = []
@@ -107,23 +118,26 @@ def build_codon_reference(
         store.save()
         logging.info("Loaded %d taxonomy parent links", count)
 
-    for taxid in taxid_list:
-        if store.has_codon_table(taxid):
-            skipped.append(taxid)
-            continue
-        logging.info("Fetching Kazusa codon usage for taxid %s", taxid)
-        try:
-            frequencies = fetch_kazusa_frequencies(taxid, timeout=fetch_timeout)
-            store.set_codon_table(taxid, frequencies, source="kazusa")
-            added.append(taxid)
-        except RuntimeError as exc:
-            logging.warning("Could not add taxid %s: %s", taxid, exc)
-            failed.append(taxid)
+    parents = store.taxonomy_parents() if store.has_taxonomy() else {}
+
+    csdb_added, csdb_skipped, csdb_failed = import_csdb_taxids(
+        store,
+        archive_path,
+        taxid_list,
+        gene_set=gene_set,
+        parents=parents or None,
+    )
+    added.extend(csdb_added)
+    skipped.extend(csdb_skipped)
+    failed.extend(csdb_failed)
 
     store.save()
 
     if not (data_dir / CODON_TABLES_FILE).exists() and not added and not skipped:
-        raise RuntimeError(f"No codon tables written to {data_dir}")
+        raise RuntimeError(
+            f"No codon tables written to {data_dir}. "
+            "Check CSDB archive path and requested taxids."
+        )
 
     return BuildCodonReferenceResult(
         data_dir=data_dir,

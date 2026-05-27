@@ -16,6 +16,7 @@ Library usage (airgapped screening requires a pre-built codon reference):
 from plasmidScreen.api import (
     analyze_codon_adaptation,
     build_codon_reference,
+    default_reference_taxids,
     default_codon_usage_dir,
     run_screen,
     taxids_from_kraken_output,
@@ -34,6 +35,7 @@ from plasmidScreen.lib.models import (
 __all__ = [
     "analyze_codon_adaptation",
     "build_codon_reference",
+    "default_reference_taxids",
     "default_codon_usage_dir",
     "run_screen",
     "taxids_from_kraken_output",

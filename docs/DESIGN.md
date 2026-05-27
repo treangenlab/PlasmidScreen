@@ -102,7 +102,7 @@ Directory (default: `~/.local/share/PlasmidScreen/codon_usage/`):
 ```json
 {
   "<taxid>": {
-    "source": "kazusa",
+    "source": "csdb",
     "scientific_name": "optional string",
     "frequencies": {
       "TTT": 0.18,
@@ -113,7 +113,7 @@ Directory (default: `~/.local/share/PlasmidScreen/codon_usage/`):
 ```
 
 - Keys: DNA codons (T not U), sense codons only used for CAI.
-- Frequencies: relative synonymous usage (0–1) per codon as in Kazusa CUTG.
+- Frequencies: CSDB synonymous **Fraction** (0–1 per amino acid), used for Sharp & Li CAI weights.
 
 **`taxonomy_parents.json` schema**
 
@@ -128,9 +128,21 @@ Directory (default: `~/.local/share/PlasmidScreen/codon_usage/`):
 
 | Input | Description |
 |-------|-------------|
-| `taxids` | List of NCBI taxonomy IDs to fetch from Kazusa |
+| *(none)* | CLI `build-codon-db build` with no flags uses bundled common taxids |
+| `csdb_archive` | Path to `codonstatsdb_March2022.tar.gz` (default: PlasmidScreen data dir) |
+| `download_csdb` | If true and archive missing, download ~5.2 GB from [CSDB](http://codonstatsdb.unr.edu/) |
+| `taxids` | NCBI taxonomy IDs to import from the CSDB archive |
 | `kraken_output` | Optional; union of all classified taxids from a Kraken file |
 | `include_taxonomy` | If true, download NCBI taxdump and write `taxonomy_parents.json` |
+| `gene_set` | CSDB table: `nuclear` (default), `ribosomal`, `mitochondrial`, or `plastid` |
+
+**Data source:** [Codon Statistics Database](http://codonstatsdb.unr.edu/) (RefSeq representative
+genomes, March 2022 snapshot). Build extracts `data/<taxid>/nuclear_codon_statistics.tsv` per species.
+Lineage resolution maps Kraken taxids to the nearest CSDB entry via NCBI taxonomy.
+
+**Default taxid bundle** merges `plasmidScreen/data/common_codon_taxids.txt` (~150 curated
+hosts) with `default_codon_taxids.txt`. Override with `--taxids`, `--taxids-file`, or
+`--kraken-output`. Prefer strain-level taxids (e.g. `511145` for *E. coli* K-12) when available.
 
 ---
 
@@ -263,7 +275,7 @@ Per-read attribution and evidence for engineered calls.
 | `taxids_requested` | list[str] | Input taxid set |
 | `taxids_added` | list[str] | Newly fetched |
 | `taxids_skipped` | list[str] | Already present |
-| `taxids_failed` | list[str] | Kazusa fetch/parse failed |
+| `taxids_failed` | list[str] | CSDB import failed (taxid not in archive / no lineage match) |
 
 ---
 
@@ -326,6 +338,9 @@ build-codon-db build
   --skip-taxonomy
   --taxdump-dir PATH
   --timeout INT
+  --csdb-archive PATH
+  --no-download-csdb
+  --gene-set nuclear|ribosomal|mitochondrial|plastid
 ```
 
 ---

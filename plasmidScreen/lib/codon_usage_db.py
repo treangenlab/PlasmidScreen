@@ -143,6 +143,10 @@ class CodonUsageStore:
     def has_taxonomy(self) -> bool:
         return bool(self._parents)
 
+    def taxonomy_parents(self) -> dict[str, str]:
+        """Copy of taxid -> parent_taxid lineage map (empty if taxonomy not loaded)."""
+        return dict(self._parents)
+
     def has_codon_table(self, taxid: str | int) -> bool:
         return str(taxid) in self._tables
 
@@ -206,7 +210,7 @@ class CodonUsageStore:
         frequencies: dict[str, float],
         *,
         scientific_name: str | None = None,
-        source: str = "kazusa",
+        source: str = "csdb",
     ) -> None:
         if not self._writable:
             raise RuntimeError("Cannot modify a read-only CodonUsageStore")

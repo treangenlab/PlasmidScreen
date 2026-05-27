@@ -1,0 +1,14 @@
+# Default NCBI taxonomy IDs for PlasmidScreen codon reference build.
+# One taxid per line; lines starting with # are ignored.
+# Strain-level NCBI taxids are preferred when CSDB has assembly-specific entries.
+
+9606
+10090
+511145
+4932
+7227
+6239
+287
+1282
+1313
+1288

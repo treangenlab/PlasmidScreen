@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI for offline codon reference build (network required)."""
+"""CLI for offline codon reference build (network required for CSDB/taxdump download)."""
 import logging
 from pathlib import Path
 from typing import Optional
@@ -8,6 +8,8 @@ import typer
 from rich.logging import RichHandler
 
 from plasmidScreen.api import build_codon_reference, default_codon_usage_dir, taxids_from_kraken_output
+from plasmidScreen.lib.codon_usage_build import default_reference_taxids
+from plasmidScreen.lib.codon_usage_sources import default_csdb_archive_path
 
 FORMAT = "%(message)s"
 logging.basicConfig(level=logging.INFO, format=FORMAT, datefmt="[%X]", handlers=[RichHandler()])
@@ -44,26 +46,50 @@ def build(
         False, "--skip-taxonomy", help="Skip NCBI taxdump (no lineage resolution)"
     ),
     taxdump_dir: Optional[Path] = typer.Option(None, "--taxdump-dir", help="NCBI taxdump cache directory"),
-    timeout: int = typer.Option(30, "--timeout", help="HTTP timeout per Kazusa request (seconds)"),
+    csdb_archive: Optional[Path] = typer.Option(
+        None,
+        "--csdb-archive",
+        help="Path to codonstatsdb_March2022.tar.gz (default: PlasmidScreen data dir)",
+    ),
+    no_download_csdb: bool = typer.Option(
+        False,
+        "--no-download-csdb",
+        help="Do not download CSDB; require --csdb-archive to exist",
+    ),
+    gene_set: str = typer.Option(
+        "nuclear",
+        "--gene-set",
+        help="CSDB gene set: nuclear, ribosomal, mitochondrial, or plastid",
+    ),
 ):
-    """Download codon usage tables and write JSON for airgapped screening."""
+    """Build codon usage tables from the Codon Statistics Database for airgapped CAI scoring."""
     data_dir = output_dir or default_codon_usage_dir()
+    archive = csdb_archive or default_csdb_archive_path()
 
     taxid_list = _parse_taxids(taxids, taxids_file)
     if kraken_output:
         taxid_list = sorted(set(taxid_list) | taxids_from_kraken_output(kraken_output))
 
     if not taxid_list:
-        typer.echo("Provide --taxids, --taxids-file, or --kraken-output.", err=True)
-        raise typer.Exit(code=1)
+        taxid_list = default_reference_taxids()
+        typer.echo(
+            f"No taxids specified; using {len(taxid_list)} default reference taxid(s). "
+            "Override with --taxids, --taxids-file, or --kraken-output."
+        )
 
-    typer.echo(f"Building codon reference at {data_dir} for {len(taxid_list)} taxid(s)...")
+    typer.echo(
+        f"Building codon reference at {data_dir} for {len(taxid_list)} taxid(s) "
+        f"from CSDB archive {archive} ..."
+    )
     result = build_codon_reference(
         data_dir,
         taxid_list,
+        use_default_taxids=False,
         include_taxonomy=not skip_taxonomy,
         taxdump_dir=taxdump_dir,
-        fetch_timeout=timeout,
+        csdb_archive=archive,
+        download_csdb=not no_download_csdb,
+        gene_set=gene_set,
     )
     typer.echo(
         f"Done. added={len(result.taxids_added)} skipped={len(result.taxids_skipped)} "

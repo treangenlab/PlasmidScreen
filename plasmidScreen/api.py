@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Optional
 
-from plasmidScreen.lib.codon_usage_build import build_codon_reference
+from plasmidScreen.lib.codon_usage_build import build_codon_reference, default_reference_taxids
 from plasmidScreen.lib.codon_usage_db import (
     CodonUsageStore,
     default_codon_usage_dir,
@@ -28,6 +28,7 @@ from plasmidScreen.src.plasmidScreen import Workflow
 __all__ = [
     "analyze_codon_adaptation",
     "build_codon_reference",
+    "default_reference_taxids",
     "default_codon_usage_dir",
     "run_screen",
     "taxids_from_kraken_output",

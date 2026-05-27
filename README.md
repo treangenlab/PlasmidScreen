@@ -16,11 +16,11 @@ from plasmidScreen import (
     taxids_from_kraken_output,
 )
 
-# Step 1 — networked machine: build reference JSON
+# Step 1 — networked machine: build reference JSON from Codon Statistics Database
 build_codon_reference(
     "codon_usage/",
     taxids=["9606", "511145"],
-    # or: taxids_from_kraken_output("kraken.out") via kraken-driven build CLI
+    csdb_archive="/path/to/codonstatsdb_March2022.tar.gz",  # optional; auto-download if omitted
 )
 
 # Step 2 — airgapped: codon analysis only (structured results)
@@ -52,11 +52,21 @@ for r in screen_result.per_read:
 ### CLI — build reference (network required)
 
 ```bash
+# Default: ~150 curated taxids from CSDB (downloads ~5.2 GB archive on first run)
+python plasmidScreen.py build-codon-db build
+
+# Use an existing CSDB archive (no download)
+python plasmidScreen.py build-codon-db build --csdb-archive /data/codonstatsdb_March2022.tar.gz --no-download-csdb
+
+# Or specify taxids / Kraken output explicitly
 python plasmidScreen.py build-codon-db build --taxids 9606,511145
 python plasmidScreen.py build-codon-db build --kraken-output kraken.out
 ```
 
-Writes `~/.local/share/PlasmidScreen/codon_usage/codon_tables.json` and optionally `taxonomy_parents.json`.
+Downloads the [Codon Statistics Database](http://codonstatsdb.unr.edu/) tar to
+`~/.local/share/PlasmidScreen/codonstatsdb_March2022.tar.gz` unless `--csdb-archive` /
+`--no-download-csdb` is set. Writes `codon_usage/codon_tables.json` and optionally
+`taxonomy_parents.json`.
 
 ### CLI — screen (airgapped)
 
