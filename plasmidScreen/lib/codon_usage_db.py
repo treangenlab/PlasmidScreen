@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from Bio.Data import CodonTable
 from plasmidScreen.lib.exceptions import CodonReferenceNotFoundError, MissingCodonReferenceError
 from plasmidScreen.lib.funcs import get_default_db_path
+from plasmidScreen.lib.types import CodonTableEntry
 
 CODON_TABLES_FILE = "codon_tables.json"
 TAXONOMY_PARENTS_FILE = "taxonomy_parents.json"
@@ -98,14 +99,22 @@ class CodonUsageStore:
     Use CodonUsageStore.writable() during offline builds only.
     """
 
+    data_dir: Path
+    tables_path: Path
+    taxonomy_path: Path
+    _writable: bool
+    _tables: dict[str, CodonTableEntry]
+    _parents: dict[str, str]
+    _dirty: bool
+
     def __init__(
         self,
         data_dir: str | Path,
         *,
         create: bool = False,
-        _tables: dict[str, dict[str, Any]] | None = None,
+        _tables: dict[str, CodonTableEntry] | None = None,
         _parents: dict[str, str] | None = None,
-    ):
+    ) -> None:
         self.data_dir = Path(data_dir)
         self.tables_path = self.data_dir / CODON_TABLES_FILE
         self.taxonomy_path = self.data_dir / TAXONOMY_PARENTS_FILE

@@ -33,14 +33,13 @@ results = analyze_codon_adaptation(
 for row in results:
     print(row.read_id, row.host_taxid, row.reference_taxid, row.cai_vs_host)
 
-# Full pipeline (Kraken + engineered scan + codon usage)
+# Full pipeline (Kraken + engineered scan + codon usage; in-memory by default)
 screen_result = run_screen(
     "reads.fa",
-    "engineered_report.txt",
-    "kraken.out",
     kraken_db="/path/to/kraken/db",
+    diamond_db="/path/to/protein.dmnd",
     codon_usage_dir="codon_usage/",
-    # Optional: flag engineered by CAI threshold (CAI < threshold)
+    engineered_report_path="engineered_report.txt",  # omit for library-only in-memory results
     codon_cai_engineered_threshold=0.7,
 )
 print(screen_result.engineered_scan.synthetic_count)

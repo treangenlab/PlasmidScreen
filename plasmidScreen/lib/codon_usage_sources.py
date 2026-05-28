@@ -13,12 +13,13 @@ from typing import Iterable
 from Bio.Data import CodonTable
 from plasmidScreen.lib.codon_usage_db import CodonUsageStore
 from plasmidScreen.lib.funcs import get_default_db_path
+from plasmidScreen.lib.types import GeneSet
 
 CSDB_ARCHIVE_URL = "http://codonstatsdb.unr.edu/codonstatsdb_March2022.tar.gz"
 CSDB_ARCHIVE_FILENAME = "codonstatsdb_March2022.tar.gz"
 CSDB_INDEX_FILENAME = "csdb_taxid_index.json"
 
-GENE_SET_FILES = {
+GENE_SET_FILES: dict[GeneSet, str] = {
     "nuclear": "nuclear_codon_statistics.tsv",
     "ribosomal": "ribosomal_codon_statistics.tsv",
     "mitochondrial": "mitochondrial_codon_statistics.tsv",
@@ -99,7 +100,7 @@ def _member_path(taxid: str, gene_set: str) -> str:
 def index_csdb_archive(
     archive_path: Path,
     *,
-    gene_set: str = "nuclear",
+    gene_set: GeneSet = "nuclear",
     index_path: Path | None = None,
     rebuild: bool = False,
 ) -> set[str]:
@@ -179,7 +180,7 @@ def read_csdb_table_from_archive(
     archive_path: Path,
     source_taxid: str,
     *,
-    gene_set: str = "nuclear",
+    gene_set: GeneSet = "nuclear",
 ) -> dict[str, float]:
     """Extract and parse one species codon table from the CSDB tar."""
     if gene_set not in GENE_SET_FILES:
@@ -205,7 +206,7 @@ def read_csdb_tables_from_archive_bulk(
     archive_path: Path,
     source_taxids: Iterable[str | int],
     *,
-    gene_set: str = "nuclear",
+    gene_set: GeneSet = "nuclear",
 ) -> dict[str, dict[str, float]]:
     """
     Extract and parse many species codon tables from the CSDB tar in one pass.
@@ -253,7 +254,7 @@ def import_csdb_taxids(
     archive_path: Path,
     taxids: Iterable[str | int],
     *,
-    gene_set: str = "nuclear",
+    gene_set: GeneSet = "nuclear",
     parents: dict[str, str] | None = None,
     save_every: int = 50,
 ) -> tuple[list[str], list[str], list[str]]:

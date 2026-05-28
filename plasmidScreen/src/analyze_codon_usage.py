@@ -12,11 +12,16 @@ from Bio.Seq import Seq
 
 from plasmidScreen.lib.codon_usage_db import CodonUsageStore, default_codon_usage_dir
 from plasmidScreen.lib.models import CodonAdaptationResult
+from plasmidScreen.lib.types import CdsOrf, KrakenReadInfo, PendingCodonRead
+from plasmidScreen.lib.diamond_host_taxonomy import (
+    infer_orfs_and_host_taxids,
+    run_diamond_blastx,
+)
 
 
-def parse_kraken_file(kraken_path: str) -> dict[str, tuple[str, str, int, str]]:
+def parse_kraken_file(kraken_path: str | Path) -> dict[str, KrakenReadInfo]:
     """Parse Kraken2 output into read_id -> (status, taxid, length, kmer_info)."""
-    kraken_data: dict[str, tuple[str, str, int, str]] = {}
+    kraken_data: dict[str, KrakenReadInfo] = {}
     with open(kraken_path, "r", buffering=1024 * 1024) as f:
         for line in f:
             parts = line.rstrip("\n").split("\t")
@@ -31,6 +36,25 @@ def parse_kraken_file(kraken_path: str) -> dict[str, tuple[str, str, int, str]]:
                 continue
             k_info = parts[-1] if len(parts) >= 5 else ""
             kraken_data[read_id] = (status, taxid, r_len, k_info)
+    return kraken_data
+
+
+def parse_kraken_lines(lines: Iterable[str]) -> dict[str, KrakenReadInfo]:
+    """Parse Kraken2 output lines into read_id -> (status, taxid, length, kmer_info)."""
+    kraken_data: dict[str, KrakenReadInfo] = {}
+    for line in lines:
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) < 4:
+            continue
+        status = parts[0]
+        read_id = parts[1]
+        taxid = parts[2]
+        try:
+            r_len = int(parts[3])
+        except ValueError:
+            continue
+        k_info = parts[-1] if len(parts) >= 5 else ""
+        kraken_data[read_id] = (status, taxid, r_len, k_info)
     return kraken_data
 
 
@@ -82,8 +106,8 @@ def map_nucleotides_to_taxids_fast(kmers: list[str], read_length: int, k: int = 
     return nuc_taxids
 
 
-def find_longest_cds_optimized(seq_str: str) -> dict:
-    best_orf = {"strand": "+", "start": 0, "end": 0, "length": 0, "seq": ""}
+def find_longest_cds_optimized(seq_str: str) -> CdsOrf:
+    best_orf: CdsOrf = {"strand": "+", "start": 0, "end": 0, "length": 0, "seq": ""}
     L = len(seq_str)
 
     for frame in range(3):
@@ -150,6 +174,7 @@ def analyze_codon_adaptation(
     reads_path: Union[str, Path],
     kraken_path: Union[str, Path],
     *,
+    kraken_data: Optional[dict[str, KrakenReadInfo]] = None,
     codon_usage_store: Optional[CodonUsageStore] = None,
     codon_usage_dir: Optional[Union[str, Path]] = None,
     include_read_ids: Optional[set[str]] = None,
@@ -162,7 +187,8 @@ def analyze_codon_adaptation(
     """
     reads_path = Path(reads_path)
     kraken_path = Path(kraken_path)
-    kraken_data = parse_kraken_file(str(kraken_path))
+    if kraken_data is None:
+        kraken_data = parse_kraken_file(kraken_path)
 
     if codon_usage_store is not None:
         store = codon_usage_store
@@ -170,7 +196,7 @@ def analyze_codon_adaptation(
         data_dir = Path(codon_usage_dir) if codon_usage_dir else default_codon_usage_dir()
         store = CodonUsageStore.load(data_dir)
 
-    pending: list[tuple] = []
+    pending: list[PendingCodonRead] = []
     file_format = "fastq" if reads_path.suffix.lower() in (".fastq", ".fq") else "fasta"
 
     for record in SeqIO.parse(reads_path, file_format):
@@ -251,29 +277,16 @@ def codon_adaptation_to_tsv_lines(results: Iterable[CodonAdaptationResult]) -> l
     return lines
 
 
-def write_codon_adaptation_tsv(
-    reads_path: Union[str, Path],
-    kraken_path: Union[str, Path],
+def write_codon_adaptation_results_tsv(
     output_path: Union[str, Path],
+    results: Iterable[CodonAdaptationResult],
     *,
-    kmer_len: int = 35,
-    include_read_ids: Optional[set[str]] = None,
-    codon_usage_dir: Optional[Union[str, Path]] = None,
-    codon_usage_store: Optional[CodonUsageStore] = None,
     cai_engineered_threshold: Optional[float] = None,
-) -> tuple[str, list[CodonAdaptationResult]]:
-    """Write codon adaptation TSV; returns (output path, structured results)."""
-    results = analyze_codon_adaptation(
-        reads_path,
-        kraken_path,
-        codon_usage_dir=codon_usage_dir,
-        codon_usage_store=codon_usage_store,
-        include_read_ids=include_read_ids,
-        kmer_len=kmer_len,
-    )
+) -> str:
+    """Write precomputed codon adaptation results to TSV; returns output path."""
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w") as f:
+    with out.open("w", encoding="utf-8") as f:
         if cai_engineered_threshold is None:
             for line in codon_adaptation_to_tsv_lines(results):
                 f.write(line + "\n")
@@ -294,7 +307,135 @@ def write_codon_adaptation_tsv(
                     f"{r.cds_taxid}\t{r.host_taxid}\t{r.reference_taxid or 'NA'}\t{r.cds_len_bp}\t"
                     f"{cai_s}\t{cai_engineered_threshold}\t{engineered}\n"
                 )
-    return str(out), results
+    return str(out)
+
+
+def write_codon_adaptation_tsv(
+    reads_path: Union[str, Path],
+    kraken_path: Union[str, Path],
+    output_path: Union[str, Path],
+    *,
+    kmer_len: int = 35,
+    include_read_ids: Optional[set[str]] = None,
+    codon_usage_dir: Optional[Union[str, Path]] = None,
+    codon_usage_store: Optional[CodonUsageStore] = None,
+    cai_engineered_threshold: Optional[float] = None,
+) -> tuple[str, list[CodonAdaptationResult]]:
+    """Write Kraken-ORF codon adaptation TSV (legacy); returns (output path, results)."""
+    results = analyze_codon_adaptation(
+        reads_path,
+        kraken_path,
+        codon_usage_dir=codon_usage_dir,
+        codon_usage_store=codon_usage_store,
+        include_read_ids=include_read_ids,
+        kmer_len=kmer_len,
+    )
+    out_path = write_codon_adaptation_results_tsv(
+        output_path,
+        results,
+        cai_engineered_threshold=cai_engineered_threshold,
+    )
+    return out_path, results
+
+
+def analyze_codon_adaptation_with_diamond(
+    reads_path: Union[str, Path],
+    *,
+    diamond_db: Union[str, Path],
+    diamond_threads: int = 4,
+    diamond_extra_args: Optional[list[str]] = None,
+    taxonomy_parents: Optional[dict[str, str]] = None,
+    overall_taxid_by_read: Optional[dict[str, str]] = None,
+    codon_usage_store: Optional[CodonUsageStore] = None,
+    codon_usage_dir: Optional[Union[str, Path]] = None,
+    include_read_ids: Optional[set[str]] = None,
+) -> list[CodonAdaptationResult]:
+    """
+    DIAMOND-based ORF + host-taxid inference for CAI (SeqScreen-Nano style).
+
+    - ORF intervals are derived from DIAMOND blastx alignments across the read.
+    - Host taxid is inferred from ORF taxids (majority/LCA).
+    - CAI is computed vs the inferred host taxid (CSDB reference store).
+    """
+    reads_path = Path(reads_path)
+
+    if codon_usage_store is not None:
+        store = codon_usage_store
+    else:
+        data_dir = Path(codon_usage_dir) if codon_usage_dir else default_codon_usage_dir()
+        store = CodonUsageStore.load(data_dir)
+
+    parents = taxonomy_parents if taxonomy_parents is not None else store.taxonomy_parents()
+
+    diamond_lines = run_diamond_blastx(
+        reads_path, diamond_db, threads=diamond_threads, extra_args=diamond_extra_args
+    )
+    orfs_by_read, host_by_read = infer_orfs_and_host_taxids(
+        diamond_lines, taxonomy_parents=parents
+    )
+
+    file_format = "fastq" if reads_path.suffix.lower() in (".fastq", ".fq") else "fasta"
+    pending: list[tuple[str, str, CdsOrf, str]] = []
+
+    for record in SeqIO.parse(reads_path, file_format):
+        read_id = record.id
+        if include_read_ids is not None and read_id not in include_read_ids:
+            continue
+        overall_taxid = (
+            overall_taxid_by_read.get(read_id) if overall_taxid_by_read else None
+        ) or "NA"
+
+        orfs = orfs_by_read.get(read_id) or []
+        if not orfs:
+            continue
+
+        # choose the longest inferred ORF interval
+        best = max(orfs, key=lambda o: (o.length_bp, o.end))
+        seq_str = str(record.seq).upper()
+        cds_seq = seq_str[best.start:best.end]
+        if len(cds_seq) < 3:
+            continue
+
+        cds: CdsOrf = {
+            "strand": "+",
+            "start": best.start,
+            "end": best.end,
+            "length": len(cds_seq) // 3,
+            "seq": cds_seq,
+        }
+
+        host_taxid = host_by_read.get(read_id) or "0"
+        pending.append((read_id, overall_taxid, cds, host_taxid))
+
+    host_taxids = {p[3] for p in pending if p[3] not in ("0", "")}
+    store.require_host_taxids(host_taxids)
+
+    results: list[CodonAdaptationResult] = []
+    for read_id, overall_taxid, cds, host_taxid in pending:
+        ref_taxid: Optional[str] = None
+        cai_score: Optional[float] = None
+        if host_taxid not in ("0", "") and len(cds["seq"]) >= 3:
+            weights, ref_taxid = store.get_cai_weights_for_host(host_taxid)
+            if weights:
+                cai_score = compute_cai(cds["seq"], weights)
+
+        results.append(
+            CodonAdaptationResult(
+                read_id=read_id,
+                overall_taxid=overall_taxid,
+                cds_strand=cds["strand"],
+                cds_start=cds["start"],
+                cds_end=cds["end"],
+                cds_taxid=overall_taxid,
+                host_taxid=host_taxid,
+                reference_taxid=ref_taxid,
+                cds_len_bp=len(cds["seq"]),
+                cai_vs_host=cai_score,
+                host_taxid_method="diamond",
+            )
+        )
+
+    return results
 
 
 def main(reads_path: str, kraken_path: str, kmer_len: int = 35) -> list[CodonAdaptationResult]:

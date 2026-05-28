@@ -1,5 +1,5 @@
 """PlasmidScreen library exceptions."""
-
+from __future__ import annotations
 
 class PlasmidScreenError(Exception):
     """Base error for library usage."""
@@ -8,7 +8,7 @@ class PlasmidScreenError(Exception):
 class MissingCodonReferenceError(PlasmidScreenError):
     """Raised when host taxids lack a pre-built codon usage reference (airgapped runs)."""
 
-    def __init__(self, missing_host_taxids: list[str], data_dir: str):
+    def __init__(self, missing_host_taxids: list[str], data_dir: str) -> None:
         self.missing_host_taxids = missing_host_taxids
         self.data_dir = data_dir
         super().__init__(
@@ -20,7 +20,7 @@ class MissingCodonReferenceError(PlasmidScreenError):
 class CodonReferenceNotFoundError(PlasmidScreenError):
     """Raised when the codon usage data directory or codon_tables.json is missing."""
 
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str) -> None:
         self.data_dir = data_dir
         super().__init__(
             f"Codon usage reference not found at {data_dir}. "

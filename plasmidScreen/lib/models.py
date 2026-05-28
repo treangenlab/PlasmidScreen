@@ -18,6 +18,7 @@ class CodonAdaptationResult:
     reference_taxid: Optional[str]
     cds_len_bp: int
     cai_vs_host: Optional[float]
+    host_taxid_method: Optional[str] = None
 
 
 @dataclass(frozen=True)

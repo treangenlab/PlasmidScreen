@@ -324,6 +324,12 @@ screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_RAW_OUTPUT [KRAKEN_DB_PATH]
   --codon-usage-output PATH
   --codon-usage-dir PATH
   --codon-cai-threshold FLOAT
+  --diamond-db PATH
+  --diamond-threads INT
+  --diamond-args TEXT
+  --skip-codon-usage
+  --debug-write-kraken-out
+  --debug-write-kraken-report
   --threads INT
 ```
 
@@ -337,7 +343,6 @@ build-codon-db build
   --kraken-output PATH
   --skip-taxonomy
   --taxdump-dir PATH
-  --timeout INT
   --csdb-archive PATH
   --no-download-csdb
   --gene-set nuclear|ribosomal|mitochondrial|plastid

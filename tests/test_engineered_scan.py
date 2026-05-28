@@ -34,6 +34,7 @@ def test_scan_engineered_blocks_integration(
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
         kraken_raw_output=str(sample_kraken_out),
+        write_engineered_report=True,
         run_kraken=False,
         run_codon_usage=False,
     )

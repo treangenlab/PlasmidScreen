@@ -19,6 +19,7 @@ from plasmidScreen.lib.codon_usage_sources import (
     import_csdb_taxids,
 )
 from plasmidScreen.lib.models import BuildCodonReferenceResult
+from plasmidScreen.lib.types import GeneSet
 
 NCBI_TAXDUMP_URL = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
 
@@ -81,7 +82,7 @@ def build_codon_reference(
     use_default_taxids: bool = True,
     csdb_archive: str | Path | None = None,
     download_csdb: bool = True,
-    gene_set: str = "nuclear",
+    gene_set: GeneSet = "nuclear",
 ) -> BuildCodonReferenceResult:
     """
     Build codon_tables.json (and optional taxonomy_parents.json) for airgapped use.
