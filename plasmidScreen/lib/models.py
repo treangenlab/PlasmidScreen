@@ -9,11 +9,9 @@ from typing import Literal, Optional
 @dataclass(frozen=True)
 class CodonAdaptationResult:
     read_id: str
-    overall_taxid: str
     cds_strand: str
     cds_start: int
     cds_end: int
-    cds_taxid: str
     host_taxid: str
     reference_taxid: Optional[str]
     cds_len_bp: int
@@ -62,6 +60,7 @@ class ScreenResult:
     per_read: list["ReadFlagDetail"] = field(default_factory=list)
     engineered_report_path: Optional[Path] = None
     codon_usage_report_path: Optional[Path] = None
+    diamond_output_path: Optional[Path] = None
 
 
 @dataclass(frozen=True)

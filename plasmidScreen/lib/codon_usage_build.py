@@ -14,8 +14,10 @@ from plasmidScreen.lib.codon_usage_db import (
     parse_taxonomy_nodes,
 )
 from plasmidScreen.lib.codon_usage_sources import (
+    all_csdb_taxids,
     default_csdb_archive_path,
     download_csdb_archive,
+    import_all_csdb_from_archive,
     import_csdb_taxids,
 )
 from plasmidScreen.lib.models import BuildCodonReferenceResult
@@ -39,9 +41,9 @@ def _load_taxids_from_package_file(filename: str) -> list[str]:
 
 def default_reference_taxids() -> list[str]:
     """
-    Taxonomy IDs for a full default build (no --taxids / --kraken-output).
+    Optional curated subset (~150 taxids) from package data files.
 
-    Loads common_codon_taxids.txt (broad set) plus default_codon_taxids.txt (minimal core).
+    Not used for default builds; see ``all_csdb_taxids()`` / full CSDB import instead.
     """
     combined = set(_load_taxids_from_package_file("common_codon_taxids.txt"))
     combined.update(_load_taxids_from_package_file("default_codon_taxids.txt"))
@@ -79,7 +81,6 @@ def build_codon_reference(
     *,
     include_taxonomy: bool = True,
     taxdump_dir: str | Path | None = None,
-    use_default_taxids: bool = True,
     csdb_archive: str | Path | None = None,
     download_csdb: bool = True,
     gene_set: GeneSet = "nuclear",
@@ -87,24 +88,23 @@ def build_codon_reference(
     """
     Build codon_tables.json (and optional taxonomy_parents.json) for airgapped use.
 
-    Imports codon usage from the Codon Statistics Database (CSDB) bulk tar archive.
-    Must be run on a machine with the CSDB archive available (downloaded automatically
-    when download_csdb=True) before screening.
+    When ``taxids`` is omitted or empty, imports **every taxid present in the CSDB
+    archive** for the selected ``gene_set``. Pass explicit taxids to import a subset.
     """
     data_dir = Path(data_dir)
-    if taxids is None:
-        if not use_default_taxids:
-            raise ValueError(
-                "No taxids provided. Pass taxids=..., or set use_default_taxids=True."
-            )
-        taxid_list = default_reference_taxids()
-        logging.info("Using %d default reference taxid(s)", len(taxid_list))
-    else:
-        taxid_list = sorted({str(t) for t in taxids if str(t) not in ("0", "")})
+    taxid_list = sorted({str(t) for t in taxids if str(t) not in ("0", "")}) if taxids else []
 
     archive_path = Path(csdb_archive) if csdb_archive else default_csdb_archive_path()
     if download_csdb and not archive_path.is_file():
         download_csdb_archive(archive_path)
+
+    import_all = not taxid_list
+    if import_all:
+        taxid_list = all_csdb_taxids(archive_path, gene_set=gene_set)
+        logging.info(
+            "No taxids specified; importing all %d taxid(s) from CSDB archive",
+            len(taxid_list),
+        )
 
     added: list[str] = []
     skipped: list[str] = []
@@ -119,18 +119,22 @@ def build_codon_reference(
         store.save()
         logging.info("Loaded %d taxonomy parent links", count)
 
-    parents = store.taxonomy_parents() if store.has_taxonomy() else {}
-
-    csdb_added, csdb_skipped, csdb_failed = import_csdb_taxids(
-        store,
-        archive_path,
-        taxid_list,
-        gene_set=gene_set,
-        parents=parents or None,
-    )
-    added.extend(csdb_added)
-    skipped.extend(csdb_skipped)
-    failed.extend(csdb_failed)
+    if import_all:
+        added, skipped = import_all_csdb_from_archive(
+            store, archive_path, gene_set=gene_set
+        )
+    else:
+        parents = store.taxonomy_parents() if store.has_taxonomy() else {}
+        csdb_added, csdb_skipped, csdb_failed = import_csdb_taxids(
+            store,
+            archive_path,
+            taxid_list,
+            gene_set=gene_set,
+            parents=parents or None,
+        )
+        added.extend(csdb_added)
+        skipped.extend(csdb_skipped)
+        failed.extend(csdb_failed)
 
     store.save()
 

@@ -249,6 +249,87 @@ def read_csdb_tables_from_archive_bulk(
     return extracted
 
 
+def all_csdb_taxids(
+    archive_path: Path | str,
+    *,
+    gene_set: GeneSet = "nuclear",
+    rebuild_index: bool = False,
+) -> list[str]:
+    """Return every NCBI taxid with a table in the CSDB archive (sorted)."""
+    taxids = index_csdb_archive(
+        Path(archive_path), gene_set=gene_set, rebuild=rebuild_index
+    )
+    return sorted(taxids)
+
+
+def import_all_csdb_from_archive(
+    store: CodonUsageStore,
+    archive_path: Path,
+    *,
+    gene_set: GeneSet = "nuclear",
+    save_every: int = 100,
+) -> tuple[list[str], list[str]]:
+    """
+    Import every codon table in the CSDB archive in a single tar pass.
+
+    Returns (added, skipped) taxids.
+    """
+    if gene_set not in GENE_SET_FILES:
+        raise ValueError(f"Unknown gene_set={gene_set!r}; choose from {list(GENE_SET_FILES)}")
+
+    archive_path = Path(archive_path)
+    if not archive_path.is_file():
+        raise FileNotFoundError(
+            f"CSDB archive not found: {archive_path}. "
+            f"Download from {CSDB_ARCHIVE_URL} or pass csdb_archive= to build_codon_reference()."
+        )
+
+    member_suffix = "/" + GENE_SET_FILES[gene_set]
+    added: list[str] = []
+    skipped: list[str] = []
+    processed = 0
+
+    with tarfile.open(archive_path, "r:gz") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            name = member.name
+            if not name.endswith(member_suffix):
+                continue
+            parts = name.split("/")
+            if len(parts) < 3 or parts[0] != "data":
+                continue
+            taxid = parts[1]
+            if store.has_codon_table(taxid):
+                skipped.append(taxid)
+                continue
+
+            fh = tar.extractfile(member)
+            if fh is None:
+                continue
+            tsv_text = fh.read().decode(errors="replace")
+            try:
+                frequencies = parse_csdb_codon_statistics(tsv_text)
+            except ValueError as exc:
+                logging.warning("CSDB import failed for taxid %s: %s", taxid, exc)
+                continue
+
+            store.set_codon_table(taxid, frequencies, source="csdb")
+            added.append(taxid)
+            processed += 1
+            if save_every and processed % save_every == 0:
+                store.save()
+                logging.info("Checkpoint: %d CSDB table(s) imported", processed)
+
+    store.save()
+    logging.info(
+        "CSDB full import complete: added=%d skipped=%d",
+        len(added),
+        len(skipped),
+    )
+    return sorted(added), sorted(skipped)
+
+
 def import_csdb_taxids(
     store: CodonUsageStore,
     archive_path: Path,

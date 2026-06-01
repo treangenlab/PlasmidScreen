@@ -77,6 +77,35 @@ def test_read_csdb_table_from_archive(csdb_archive: Path) -> None:
     assert freqs["GCT"] == 0.25
 
 
+def test_import_all_csdb_from_archive(tmp_path: Path, csdb_archive: Path) -> None:
+    from plasmidScreen.lib.codon_usage_sources import import_all_csdb_from_archive
+
+    store = CodonUsageStore.writable(tmp_path / "codon_usage")
+    added, skipped = import_all_csdb_from_archive(store, csdb_archive)
+    assert set(added) == {"9606", "511145"}
+    assert skipped == []
+    assert store.has_codon_table("9606")
+
+
+def test_import_all_csdb_from_archive_skips_existing(
+    tmp_path: Path, csdb_archive: Path
+) -> None:
+    from plasmidScreen.lib.codon_usage_sources import import_all_csdb_from_archive
+
+    store = CodonUsageStore.writable(tmp_path / "codon_usage")
+    store.set_codon_table("9606", {"GCT": 0.25}, source="test")
+    store.save()
+    added, skipped = import_all_csdb_from_archive(store, csdb_archive)
+    assert added == ["511145"]
+    assert skipped == ["9606"]
+
+
+def test_all_csdb_taxids(csdb_archive: Path) -> None:
+    from plasmidScreen.lib.codon_usage_sources import all_csdb_taxids
+
+    assert all_csdb_taxids(csdb_archive, rebuild_index=True) == ["511145", "9606"]
+
+
 def test_import_csdb_taxids(tmp_path: Path, csdb_archive: Path) -> None:
     store = CodonUsageStore.writable(tmp_path / "codon_usage")
     parents = {"511145": "562", "562": "561", "561": "561"}

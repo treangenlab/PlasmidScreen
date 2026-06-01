@@ -22,6 +22,34 @@ def test_parse_and_run_synthetic_detection(kmer_field: str, expected: bool) -> N
     assert isinstance(max_eng, int)
 
 
+def test_parse_and_run_malformed_or_oversized_counts() -> None:
+    assert Workflow.parse_and_run("", window_size=200, threshold=25) == (False, 0)
+    assert Workflow.parse_and_run("562:66:extra", window_size=200, threshold=25) == (
+        False,
+        0,
+    )
+    huge = "32630:" + str(10**12)
+    assert Workflow.parse_and_run(huge, window_size=200, threshold=25)[0] in (
+        False,
+        True,
+    )
+
+
+def test_parse_and_run_numba_unbox_fallback(monkeypatch) -> None:
+    from plasmidScreen.src import plasmidScreen as ps
+
+    def _raise_type_error(*_args, **_kwargs):
+        raise TypeError(
+            "can't unbox array from PyObject into native value.  "
+            "The object maybe of a different type"
+        )
+
+    monkeypatch.setattr(ps, "fast_window_logic", _raise_type_error)
+    hit, max_eng = Workflow.parse_and_run("32630:66", window_size=200, threshold=25)
+    assert hit is True
+    assert max_eng == 25
+
+
 def test_scan_engineered_blocks_integration(
     sample_fasta: Path,
     sample_kraken_out: Path,

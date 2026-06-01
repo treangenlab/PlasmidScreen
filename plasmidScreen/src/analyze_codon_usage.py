@@ -15,7 +15,7 @@ from plasmidScreen.lib.models import CodonAdaptationResult
 from plasmidScreen.lib.types import CdsOrf, KrakenReadInfo, PendingCodonRead
 from plasmidScreen.lib.diamond_host_taxonomy import (
     infer_orfs_and_host_taxids,
-    run_diamond_blastx,
+    resolve_diamond_lines,
 )
 
 
@@ -221,21 +221,16 @@ def analyze_codon_adaptation(
         if cds["length"] == 0:
             continue
 
-        cds_tax_votes = Counter(nuc_taxids[cds["start"] : cds["end"]])
         host_tax_votes = Counter(nuc_taxids[: cds["start"]] + nuc_taxids[cds["end"] :])
-
-        cds_taxid = cds_tax_votes.most_common(1)[0][0] if cds_tax_votes else taxid
         host_taxid = host_tax_votes.most_common(1)[0][0] if host_tax_votes else "0"
 
-        pending.append(
-            (read_id, taxid, cds, cds_taxid, host_taxid)
-        )
+        pending.append((read_id, cds, host_taxid))
 
-    host_taxids = {p[4] for p in pending if p[4] != "0"}
+    host_taxids = {p[2] for p in pending if p[2] != "0"}
     store.require_host_taxids(host_taxids)
 
     results: list[CodonAdaptationResult] = []
-    for read_id, taxid, cds, cds_taxid, host_taxid in pending:
+    for read_id, cds, host_taxid in pending:
         ref_taxid: Optional[str] = None
         cai_score: Optional[float] = None
 
@@ -247,11 +242,9 @@ def analyze_codon_adaptation(
         results.append(
             CodonAdaptationResult(
                 read_id=read_id,
-                overall_taxid=taxid,
                 cds_strand=cds["strand"],
                 cds_start=cds["start"],
                 cds_end=cds["end"],
-                cds_taxid=cds_taxid,
                 host_taxid=host_taxid,
                 reference_taxid=ref_taxid,
                 cds_len_bp=len(cds["seq"]),
@@ -264,15 +257,15 @@ def analyze_codon_adaptation(
 
 def codon_adaptation_to_tsv_lines(results: Iterable[CodonAdaptationResult]) -> list[str]:
     header = (
-        "Read_ID\tOverall_TaxID\tCDS_Strand\tCDS_Range\tCDS_TaxID\tHost_TaxID\t"
+        "Read_ID\tCDS_Strand\tCDS_Range\tHost_TaxID\t"
         "Reference_TaxID\tCDS_Len_bp\tCAI_vs_Host"
     )
     lines = [header]
     for r in results:
         cai = f"{r.cai_vs_host:.4f}" if r.cai_vs_host is not None else "NA"
         lines.append(
-            f"{r.read_id}\t{r.overall_taxid}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
-            f"{r.cds_taxid}\t{r.host_taxid}\t{r.reference_taxid or 'NA'}\t{r.cds_len_bp}\t{cai}"
+            f"{r.read_id}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
+            f"{r.host_taxid}\t{r.reference_taxid or 'NA'}\t{r.cds_len_bp}\t{cai}"
         )
     return lines
 
@@ -292,7 +285,7 @@ def write_codon_adaptation_results_tsv(
                 f.write(line + "\n")
         else:
             header = (
-                "Read_ID\tOverall_TaxID\tCDS_Strand\tCDS_Range\tCDS_TaxID\tHost_TaxID\t"
+                "Read_ID\tCDS_Strand\tCDS_Range\tHost_TaxID\t"
                 "Reference_TaxID\tCDS_Len_bp\tCAI_vs_Host\tCodon_CAI_Threshold\tEngineered_By_Codon_CAI"
             )
             f.write(header + "\n")
@@ -303,8 +296,8 @@ def write_codon_adaptation_results_tsv(
                     "NA" if cai is None else str(cai < cai_engineered_threshold)
                 )
                 f.write(
-                    f"{r.read_id}\t{r.overall_taxid}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
-                    f"{r.cds_taxid}\t{r.host_taxid}\t{r.reference_taxid or 'NA'}\t{r.cds_len_bp}\t"
+                    f"{r.read_id}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
+                    f"{r.host_taxid}\t{r.reference_taxid or 'NA'}\t{r.cds_len_bp}\t"
                     f"{cai_s}\t{cai_engineered_threshold}\t{engineered}\n"
                 )
     return str(out)
@@ -341,21 +334,25 @@ def write_codon_adaptation_tsv(
 def analyze_codon_adaptation_with_diamond(
     reads_path: Union[str, Path],
     *,
-    diamond_db: Union[str, Path],
+    diamond_db: Union[str, Path] | None = None,
     diamond_threads: int = 4,
     diamond_extra_args: Optional[list[str]] = None,
+    run_diamond: bool = True,
+    diamond_output_path: Union[str, Path] | None = None,
+    debug_write_diamond_output: bool = False,
     taxonomy_parents: Optional[dict[str, str]] = None,
-    overall_taxid_by_read: Optional[dict[str, str]] = None,
     codon_usage_store: Optional[CodonUsageStore] = None,
     codon_usage_dir: Optional[Union[str, Path]] = None,
     include_read_ids: Optional[set[str]] = None,
-) -> list[CodonAdaptationResult]:
+) -> tuple[list[CodonAdaptationResult], Path | None]:
     """
     DIAMOND-based ORF + host-taxid inference for CAI (SeqScreen-Nano style).
 
-    - ORF intervals are derived from DIAMOND blastx alignments across the read.
-    - Host taxid is inferred from ORF taxids (majority/LCA).
+    - ORF intervals and CDS coordinates come from DIAMOND qstart/qend (--min-orf).
+    - Host taxid is inferred from DIAMOND hit staxids only (majority/LCA over all hits).
     - CAI is computed vs the inferred host taxid (CSDB reference store).
+    - Set ``debug_write_diamond_output`` + ``diamond_output_path`` to save TSV for reuse.
+    - Set ``run_diamond=False`` + ``diamond_output_path`` to load a saved TSV.
     """
     reads_path = Path(reads_path)
 
@@ -367,51 +364,55 @@ def analyze_codon_adaptation_with_diamond(
 
     parents = taxonomy_parents if taxonomy_parents is not None else store.taxonomy_parents()
 
-    diamond_lines = run_diamond_blastx(
-        reads_path, diamond_db, threads=diamond_threads, extra_args=diamond_extra_args
+    diamond_lines, diamond_path = resolve_diamond_lines(
+        reads_path,
+        diamond_db,
+        run_diamond=run_diamond,
+        output_path=diamond_output_path,
+        debug_write_output=debug_write_diamond_output,
+        threads=diamond_threads,
+        extra_args=diamond_extra_args,
     )
     orfs_by_read, host_by_read = infer_orfs_and_host_taxids(
         diamond_lines, taxonomy_parents=parents
     )
 
     file_format = "fastq" if reads_path.suffix.lower() in (".fastq", ".fq") else "fasta"
-    pending: list[tuple[str, str, CdsOrf, str]] = []
+    pending: list[tuple[str, CdsOrf, str]] = []
 
     for record in SeqIO.parse(reads_path, file_format):
         read_id = record.id
         if include_read_ids is not None and read_id not in include_read_ids:
             continue
-        overall_taxid = (
-            overall_taxid_by_read.get(read_id) if overall_taxid_by_read else None
-        ) or "NA"
+        host_taxid = host_by_read.get(read_id)
+        if not host_taxid:
+            continue
 
         orfs = orfs_by_read.get(read_id) or []
         if not orfs:
             continue
 
-        # choose the longest inferred ORF interval
         best = max(orfs, key=lambda o: (o.length_bp, o.end))
         seq_str = str(record.seq).upper()
-        cds_seq = seq_str[best.start:best.end]
+        cds_seq = seq_str[best.start : best.end]
         if len(cds_seq) < 3:
             continue
 
         cds: CdsOrf = {
-            "strand": "+",
+            "strand": best.strand,
             "start": best.start,
             "end": best.end,
             "length": len(cds_seq) // 3,
             "seq": cds_seq,
         }
 
-        host_taxid = host_by_read.get(read_id) or "0"
-        pending.append((read_id, overall_taxid, cds, host_taxid))
+        pending.append((read_id, cds, host_taxid))
 
-    host_taxids = {p[3] for p in pending if p[3] not in ("0", "")}
+    host_taxids = {p[2] for p in pending if p[2] not in ("0", "")}
     store.require_host_taxids(host_taxids)
 
     results: list[CodonAdaptationResult] = []
-    for read_id, overall_taxid, cds, host_taxid in pending:
+    for read_id, cds, host_taxid in pending:
         ref_taxid: Optional[str] = None
         cai_score: Optional[float] = None
         if host_taxid not in ("0", "") and len(cds["seq"]) >= 3:
@@ -422,11 +423,9 @@ def analyze_codon_adaptation_with_diamond(
         results.append(
             CodonAdaptationResult(
                 read_id=read_id,
-                overall_taxid=overall_taxid,
                 cds_strand=cds["strand"],
                 cds_start=cds["start"],
                 cds_end=cds["end"],
-                cds_taxid=overall_taxid,
                 host_taxid=host_taxid,
                 reference_taxid=ref_taxid,
                 cds_len_bp=len(cds["seq"]),
@@ -435,7 +434,7 @@ def analyze_codon_adaptation_with_diamond(
             )
         )
 
-    return results
+    return results, diamond_path
 
 
 def main(reads_path: str, kraken_path: str, kmer_len: int = 35) -> list[CodonAdaptationResult]:

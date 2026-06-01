@@ -6,14 +6,14 @@ from unittest.mock import patch
 from plasmidScreen.api import build_codon_database
 
 
-@patch("plasmidScreen.api.default_reference_taxids")
 @patch("plasmidScreen.api.build_codon_reference")
-def test_build_codon_database_defaults_when_no_taxids(mock_build, mock_defaults, tmp_path: Path) -> None:
-    mock_defaults.return_value = ["9606", "511145"]
+def test_build_codon_database_imports_all_csdb_when_no_taxids(
+    mock_build, tmp_path: Path
+) -> None:
     build_codon_database(output_dir=tmp_path, download_csdb=False)
     args, kwargs = mock_build.call_args
-    assert list(args[1]) == ["9606", "511145"]
-    assert kwargs["use_default_taxids"] is False
+    assert args[1] is None
+    assert kwargs["download_csdb"] is False
 
 
 @patch("plasmidScreen.api.taxids_from_kraken_output")
@@ -31,5 +31,4 @@ def test_build_codon_database_unions_inputs(mock_build, mock_from_kraken, tmp_pa
         download_csdb=False,
     )
     args, _kwargs = mock_build.call_args
-    # args[1] is the taxid_list passed to build_codon_reference
     assert set(args[1]) == {"10090", "9606", "511145", "562"}

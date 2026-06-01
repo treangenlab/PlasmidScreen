@@ -114,11 +114,9 @@ def test_tsv_lines_match_results() -> None:
 
     row = CodonAdaptationResult(
         read_id="r1",
-        overall_taxid="562",
         cds_strand="+",
         cds_start=0,
         cds_end=12,
-        cds_taxid="562",
         host_taxid="562",
         reference_taxid="562",
         cds_len_bp=12,

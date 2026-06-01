@@ -5,8 +5,8 @@ Library usage (airgapped screening requires a pre-built codon reference):
 
     from plasmidScreen import build_codon_reference, analyze_codon_adaptation, run_screen
 
-    # 1. On a networked machine — build reference once
-    build_codon_reference("codon_usage/", taxids=["9606", "511145"])
+    # Step 1 — networked machine: build reference JSON from Codon Statistics Database
+    build_codon_reference("codon_usage/")  # all taxids in CSDB by default
 
     # 2. On airgapped machine — analyze
     results = analyze_codon_adaptation("reads.fa", "kraken.out", codon_usage_dir="codon_usage/")

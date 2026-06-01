@@ -235,11 +235,9 @@ read_natural_1	562	+	0-12	562	562	562	12	0.7234
 | Field | Type | Description |
 |-------|------|-------------|
 | `read_id` | str | Read ID |
-| `overall_taxid` | str | Kraken taxid |
 | `cds_strand` | str | `+` or `-` |
-| `cds_start`, `cds_end` | int | CDS coordinates |
-| `cds_taxid` | str | Taxid over CDS |
-| `host_taxid` | str | Taxid over flanks |
+| `cds_start`, `cds_end` | int | CDS coordinates (DIAMOND qstart/qend or legacy ORF finder) |
+| `host_taxid` | str | Taxid for CAI from DIAMOND `staxids` (majority/LCA) or Kraken flanks (legacy) |
 | `reference_taxid` | str \| None | Resolved reference taxid |
 | `cds_len_bp` | int | CDS length |
 | `cai_vs_host` | float \| None | CAI score |

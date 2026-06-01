@@ -9,7 +9,7 @@ import typer
 from rich.logging import RichHandler
 
 from plasmidScreen.api import build_codon_reference, default_codon_usage_dir, taxids_from_kraken_output
-from plasmidScreen.lib.codon_usage_build import default_reference_taxids
+from plasmidScreen.lib.codon_usage_build import build_codon_reference
 from plasmidScreen.lib.codon_usage_sources import default_csdb_archive_path
 from plasmidScreen.lib.types import GeneSet
 
@@ -72,21 +72,19 @@ def build(
     if kraken_output:
         taxid_list = sorted(set(taxid_list) | taxids_from_kraken_output(kraken_output))
 
-    if not taxid_list:
-        taxid_list = default_reference_taxids()
+    if taxid_list:
         typer.echo(
-            f"No taxids specified; using {len(taxid_list)} default reference taxid(s). "
-            "Override with --taxids, --taxids-file, or --kraken-output."
+            f"Building codon reference at {data_dir} for {len(taxid_list)} taxid(s) "
+            f"from CSDB archive {archive} ..."
+        )
+    else:
+        typer.echo(
+            f"Building codon reference at {data_dir} for all taxids in CSDB archive {archive} ..."
         )
 
-    typer.echo(
-        f"Building codon reference at {data_dir} for {len(taxid_list)} taxid(s) "
-        f"from CSDB archive {archive} ..."
-    )
     result = build_codon_reference(
         data_dir,
-        taxid_list,
-        use_default_taxids=False,
+        taxid_list or None,
         include_taxonomy=not skip_taxonomy,
         taxdump_dir=taxdump_dir,
         csdb_archive=archive,

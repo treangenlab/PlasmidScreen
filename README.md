@@ -19,7 +19,6 @@ from plasmidScreen import (
 # Step 1 — networked machine: build reference JSON from Codon Statistics Database
 build_codon_reference(
     "codon_usage/",
-    taxids=["9606", "511145"],
     csdb_archive="/path/to/codonstatsdb_March2022.tar.gz",  # optional; auto-download if omitted
 )
 
@@ -51,7 +50,7 @@ for r in screen_result.per_read:
 ### CLI — build reference (network required)
 
 ```bash
-# Default: ~150 curated taxids from CSDB (downloads ~5.2 GB archive on first run)
+# Default: all taxids in CSDB (downloads ~5.2 GB archive on first run)
 python plasmidScreen.py build-codon-db build
 
 # Use an existing CSDB archive (no download)
@@ -70,9 +69,19 @@ Downloads the [Codon Statistics Database](http://codonstatsdb.unr.edu/) tar to
 ### CLI — screen (airgapped)
 
 ```bash
-python plasmidScreen.py screen reads.fa report.txt kraken.out \
+python plasmidScreen.py screen reads.fa report.txt \
+  --diamond-db /path/to/protein.dmnd \
   --codon-usage-dir ~/.local/share/PlasmidScreen/codon_usage \
   --codon-usage-output codon_usage.tsv
+
+# Save DIAMOND TSV for debugging / reuse (skip re-running DIAMOND later)
+python plasmidScreen.py screen reads.fa report.txt \
+  --diamond-db /path/to/protein.dmnd \
+  --debug-write-diamond-out --diamond-output-path diamond.tsv
+
+# Re-run codon step only from saved DIAMOND output
+python plasmidScreen.py screen reads.fa report.txt \
+  --no-run-diamond --diamond-output-path diamond.tsv
 ```
 
 If a host taxid is missing from the reference, screening raises `MissingCodonReferenceError` (build the reference first; no online fetch at runtime).

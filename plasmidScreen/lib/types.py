@@ -8,8 +8,8 @@ GeneSet = Literal["nuclear", "ribosomal", "mitochondrial", "plastid"]
 KrakenReadInfo = tuple[str, str, int, str]
 """Kraken2 row fields: (status, taxid, read_length, kmer_info)."""
 
-PendingCodonRead = tuple[str, str, "CdsOrf", str, str]
-"""Pending codon row: (read_id, overall_taxid, cds, cds_taxid, host_taxid)."""
+PendingCodonRead = tuple[str, "CdsOrf", str]
+"""Pending codon row: (read_id, cds, host_taxid)."""
 
 
 class CdsOrf(TypedDict):

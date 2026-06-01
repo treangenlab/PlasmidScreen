@@ -36,11 +36,11 @@ from plasmidScreen.src.analyze_codon_usage import (
 
 @jit(nopython=True)
 def fast_window_logic(
-    tids: NDArray[np.int32],
-    counts: NDArray[np.int32],
-    window_size: int,
-    threshold: int,
-) -> tuple[bool, int]:
+    tids,
+    counts,
+    window_size,
+    threshold,
+):
     target_tid = 32630
     max_kmers = window_size - 21 + 1
 
@@ -157,6 +157,10 @@ class Workflow:
     diamond_db: Path | None
     diamond_threads: int
     diamond_extra_args: list[str] | None
+    diamond_output_path: Path | None
+    debug_write_diamond_output: bool
+    run_diamond_enabled: bool
+    _diamond_output_saved: Path | None
 
     def __init__(
         self,
@@ -175,11 +179,14 @@ class Workflow:
         debug_write_kraken_output: bool = False,
         debug_write_kraken_report: bool = False,
         run_codon_usage: bool = True,
-        kmer_len: int = 35,
+        kmer_len: int = 21,
         codon_cai_engineered_threshold: float | None = None,
         diamond_db: str | Path | None = None,
         diamond_threads: int = 4,
         diamond_extra_args: list[str] | None = None,
+        diamond_output_path: str | Path | None = None,
+        debug_write_diamond_output: bool = False,
+        run_diamond: bool = True,
     ) -> None:
         self.fasta_file = Path(fasta_file)
         self.report_output_path = (
@@ -208,6 +215,12 @@ class Workflow:
         self.diamond_db = Path(diamond_db) if diamond_db else None
         self.diamond_threads = diamond_threads
         self.diamond_extra_args = diamond_extra_args
+        self.diamond_output_path = (
+            Path(diamond_output_path) if diamond_output_path else None
+        )
+        self.debug_write_diamond_output = debug_write_diamond_output
+        self.run_diamond_enabled = run_diamond
+        self._diamond_output_saved = None
 
     def _ensure_kraken_in_memory(self) -> None:
         if self._kraken_lines is not None and self._kraken_data is not None:
@@ -270,9 +283,13 @@ class Workflow:
         if not raw_data:
             return False, 0
 
+        window_size = int(window_size)
+        threshold = int(threshold)
+        max_kmers = max(window_size - 21 + 1, 1)
+
         n = len(raw_data)
-        tids = np.zeros(n, dtype=np.int32)
-        counts = np.zeros(n, dtype=np.int32)
+        tids = np.zeros(n, dtype=np.int64)
+        counts = np.zeros(n, dtype=np.int64)
 
         try:
             for i, item in enumerate(raw_data):
@@ -281,20 +298,80 @@ class Workflow:
                     tids[i] = -1
                 else:
                     tids[i] = int(t)
-                counts[i] = int(c)
-        except (ValueError, IndexError):
+                counts[i] = min(int(c), max_kmers)
+        except (ValueError, IndexError, OverflowError):
             return False, 0
 
-        return fast_window_logic(tids, counts, window_size, threshold)
+        tids = np.ascontiguousarray(tids, dtype=np.int64)
+        counts = np.ascontiguousarray(counts, dtype=np.int64)
+        try:
+            return fast_window_logic(tids, counts, window_size, threshold)
+        except TypeError:
+            # Older Numba builds can fail to unbox int32-annotated arrays; int64 + fallback.
+            return Workflow._fast_window_logic_python(
+                tids, counts, window_size, threshold
+            )
+
+    @staticmethod
+    def _fast_window_logic_python(
+        tids: NDArray[np.int64],
+        counts: NDArray[np.int64],
+        window_size: int,
+        threshold: int,
+    ) -> tuple[bool, int]:
+        """Pure-Python fallback when Numba cannot compile/unbox inputs."""
+        target_tid = 32630
+        max_kmers = window_size - 21 + 1
+
+        eng_count = 0
+        non_eng_count = 0
+        total_count = 0
+        max_eng_seen = 0
+
+        for i in range(len(tids)):
+            tid = int(tids[i])
+            count = int(counts[i])
+
+            for _ in range(count):
+                if total_count < max_kmers:
+                    if tid == target_tid:
+                        eng_count += 1
+                    else:
+                        non_eng_count += 1
+                    total_count += 1
+                else:
+                    if tid == target_tid:
+                        if eng_count + 1 < max_kmers:
+                            eng_count += 1
+                        else:
+                            eng_count = max_kmers
+
+                        if non_eng_count - 1 > 0:
+                            non_eng_count -= 1
+                        else:
+                            non_eng_count = 0
+                    else:
+                        if non_eng_count + 1 < max_kmers:
+                            non_eng_count += 1
+                        else:
+                            non_eng_count = max_kmers
+
+                        if eng_count - 1 > 0:
+                            eng_count -= 1
+                        else:
+                            eng_count = 0
+
+                if eng_count > max_eng_seen:
+                    max_eng_seen = eng_count
+
+                if eng_count >= threshold:
+                    return True, max_eng_seen
+
+        return False, max_eng_seen
 
     def scan_engineered_blocks_kraken(self) -> EngineeredScanResult:
         result = EngineeredScanResult()
         self._ensure_kraken_in_memory()
-        if self._kraken_lines is None:
-            raise FileNotFoundError(
-                "Kraken classifications not available in memory and no kraken_output_path was provided."
-            )
-
         kmer_max_by_read: dict[str, int] = {}
         entries = self._kraken_lines
         for entry in tqdm(entries, total=len(entries)):
@@ -339,30 +416,37 @@ class Workflow:
             logging.info("No reads labeled Natural; skipping codon usage analysis.")
             return []
 
-        if self.diamond_db is None:
+        if self.run_diamond_enabled and self.diamond_db is None:
             raise ValueError(
                 "DIAMOND host-taxonomy is required for codon CAI. "
                 "Provide diamond_db to Workflow (or --diamond-db in CLI)."
             )
-        self._ensure_kraken_in_memory()
-        overall_by_read = None
-        if self._kraken_data is not None:
-            overall_by_read = {rid: info[1] for rid, info in self._kraken_data.items()}
-        return analyze_codon_adaptation_with_diamond(
+        if not self.run_diamond_enabled and self.diamond_output_path is None:
+            raise ValueError(
+                "diamond_output_path is required when run_diamond=False "
+                "(precomputed DIAMOND TSV)."
+            )
+        if self.debug_write_diamond_output and self.diamond_output_path is None:
+            raise ValueError(
+                "diamond_output_path is required when debug_write_diamond_output=True."
+            )
+        results, diamond_path = analyze_codon_adaptation_with_diamond(
             self.fasta_file,
             diamond_db=self.diamond_db,
             diamond_threads=self.diamond_threads,
             diamond_extra_args=self.diamond_extra_args,
-            overall_taxid_by_read=overall_by_read,
+            run_diamond=self.run_diamond_enabled,
+            diamond_output_path=self.diamond_output_path,
+            debug_write_diamond_output=self.debug_write_diamond_output,
             codon_usage_dir=self.codon_usage_dir,
             include_read_ids=natural_read_ids,
         )
+        self._diamond_output_saved = diamond_path
+        return results
 
     def run(self) -> ScreenResult:
         if self.run_kraken_enabled:
             self.run_kraken()
-
-        self._ensure_kraken_in_memory()
         engineered_scan = self.scan_engineered_blocks_kraken()
 
         codon_results: list[CodonAdaptationResult] = []
@@ -437,4 +521,5 @@ class Workflow:
             per_read=per_read,
             engineered_report_path=engineered_path,
             codon_usage_report_path=codon_path,
+            diamond_output_path=self._diamond_output_saved,
         )
