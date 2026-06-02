@@ -6,14 +6,13 @@ All screening assumes codon reference data was built offline (airgapped-safe).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable
 
-from plasmidScreen.lib.codon_usage_build import build_codon_reference, default_reference_taxids
+from plasmidScreen.lib.codon_usage_build import build_codon_reference
 from plasmidScreen.lib.codon_usage_sources import all_csdb_taxids
 from plasmidScreen.lib.codon_usage_db import (
     CodonUsageStore,
     default_codon_usage_dir,
-    taxids_from_kraken_output,
 )
 from plasmidScreen.lib.models import (
     BuildCodonReferenceResult,
@@ -34,7 +33,6 @@ __all__ = [
     "all_csdb_taxids",
     "default_codon_usage_dir",
     "run_screen",
-    "taxids_from_kraken_output",
     "write_codon_adaptation_tsv",
     "BuildCodonReferenceResult",
     "CodonAdaptationResult",
@@ -144,7 +142,6 @@ def build_codon_database(
     output_dir: str | Path | None = None,
     taxids: Iterable[str | int] | None = None,
     taxids_file: str | Path | None = None,
-    kraken_output: str | Path | None = None,
     include_taxonomy: bool = True,
     taxdump_dir: str | Path | None = None,
     csdb_archive: str | Path | None = None,
@@ -172,9 +169,6 @@ def build_codon_database(
             line = line.strip().split("#")[0].strip()
             if line:
                 resolved.add(line)
-
-    if kraken_output:
-        resolved.update(taxids_from_kraken_output(Path(kraken_output)))
 
     taxid_list = sorted(resolved) if resolved else None
 

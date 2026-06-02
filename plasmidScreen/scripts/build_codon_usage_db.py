@@ -8,7 +8,7 @@ from pathlib import Path
 import typer
 from rich.logging import RichHandler
 
-from plasmidScreen.api import build_codon_reference, default_codon_usage_dir, taxids_from_kraken_output
+from plasmidScreen.api import default_codon_usage_dir
 from plasmidScreen.lib.codon_usage_build import build_codon_reference
 from plasmidScreen.lib.codon_usage_sources import default_csdb_archive_path
 from plasmidScreen.lib.types import GeneSet
@@ -41,9 +41,6 @@ def build(
     ),
     taxids: str | None = typer.Option(None, "--taxids", help="Comma-separated NCBI taxonomy IDs"),
     taxids_file: Path | None = typer.Option(None, "--taxids-file", help="One taxid per line"),
-    kraken_output: Path | None = typer.Option(
-        None, "--kraken-output", help="Kraken2 output; all classified taxids are included"
-    ),
     skip_taxonomy: bool = typer.Option(
         False, "--skip-taxonomy", help="Skip NCBI taxdump (no lineage resolution)"
     ),
@@ -69,8 +66,6 @@ def build(
     archive = csdb_archive or default_csdb_archive_path()
 
     taxid_list = _parse_taxids(taxids, taxids_file)
-    if kraken_output:
-        taxid_list = sorted(set(taxid_list) | taxids_from_kraken_output(kraken_output))
 
     if taxid_list:
         typer.echo(

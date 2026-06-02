@@ -25,19 +25,6 @@ from plasmidScreen.lib.types import GeneSet
 
 NCBI_TAXDUMP_URL = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
 
-
-def _load_taxids_from_package_file(filename: str) -> list[str]:
-    try:
-        text = resources.files("plasmidScreen.data").joinpath(filename).read_text(encoding="utf-8")
-    except (FileNotFoundError, ModuleNotFoundError, TypeError, OSError):
-        return []
-    taxids: list[str] = []
-    for line in text.splitlines():
-        line = line.strip().split("#")[0].strip()
-        if line:
-            taxids.append(line)
-    return taxids
-
 def download_ncbi_taxdump(dest_dir: Path) -> Path:
     """Download and extract nodes.dmp from NCBI taxdump."""
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -59,14 +46,14 @@ def download_ncbi_taxdump(dest_dir: Path) -> Path:
 
 
 def build_codon_reference(
-    data_dir: str | Path,
-    taxids: Iterable[str | int] | None = None,
-    *,
-    include_taxonomy: bool = True,
-    taxdump_dir: str | Path | None = None,
-    csdb_archive: str | Path | None = None,
-    download_csdb: bool = True,
-    gene_set: GeneSet = "nuclear",
+        data_dir: str | Path,
+        taxids: Iterable[str | int] | None = None,
+        *,
+        include_taxonomy: bool = True,
+        taxdump_dir: str | Path | None = None,
+        csdb_archive: str | Path | None = None,
+        download_csdb: bool = True,
+        gene_set: GeneSet = "nuclear",
 ) -> BuildCodonReferenceResult:
     """
     Build codon_tables.json (and optional taxonomy_parents.json) for airgapped use.

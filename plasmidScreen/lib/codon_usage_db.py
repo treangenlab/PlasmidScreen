@@ -78,21 +78,6 @@ def parse_taxonomy_nodes(nodes_dmp: Path) -> dict[str, str]:
             parents[taxid] = parent
     return parents
 
-
-def taxids_from_kraken_output(kraken_path: str | Path) -> set[str]:
-    """Collect unique classified taxids from Kraken2 output."""
-    taxids: set[str] = set()
-    with open(kraken_path, "r", buffering=1024 * 1024) as f:
-        for line in f:
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) < 3:
-                continue
-            taxid = parts[2]
-            if taxid not in ("0", "U", "unclassified"):
-                taxids.add(taxid)
-    return taxids
-
-
 class CodonUsageStore:
     """Read-only JSON codon usage store for runtime (airgapped).
 
