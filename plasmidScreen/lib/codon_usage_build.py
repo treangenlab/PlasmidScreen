@@ -4,14 +4,12 @@ from __future__ import annotations
 import logging
 import tarfile
 import urllib.request
-from importlib import resources
 from pathlib import Path
 from typing import Iterable
 
 from plasmidScreen.lib.codon_usage_db import (
     CODON_TABLES_FILE,
     CodonUsageStore,
-    parse_taxonomy_nodes,
 )
 from plasmidScreen.lib.codon_usage_sources import (
     all_csdb_taxids,

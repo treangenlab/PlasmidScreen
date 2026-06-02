@@ -21,10 +21,8 @@ from plasmidScreen.api import (
     analyze_codon_adaptation,
     build_codon_database,
     build_codon_reference,
-    default_reference_taxids,
     default_codon_usage_dir,
     run_screen,
-    taxids_from_kraken_output,
     write_codon_adaptation_tsv,
 )
 from plasmidScreen.lib.codon_usage_db import CodonUsageStore
@@ -41,10 +39,8 @@ __all__ = [
     "analyze_codon_adaptation",
     "build_codon_database",
     "build_codon_reference",
-    "default_reference_taxids",
     "default_codon_usage_dir",
     "run_screen",
-    "taxids_from_kraken_output",
     "write_codon_adaptation_tsv",
     "BuildCodonReferenceResult",
     "CodonAdaptationResult",
