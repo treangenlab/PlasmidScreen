@@ -38,23 +38,6 @@ def _load_taxids_from_package_file(filename: str) -> list[str]:
             taxids.append(line)
     return taxids
 
-
-def default_reference_taxids() -> list[str]:
-    """
-    Optional curated subset (~150 taxids) from package data files.
-
-    Not used for default builds; see ``all_csdb_taxids()`` / full CSDB import instead.
-    """
-    combined = set(_load_taxids_from_package_file("common_codon_taxids.txt"))
-    combined.update(_load_taxids_from_package_file("default_codon_taxids.txt"))
-    if not combined:
-        combined = {
-            "9606", "10090", "511145", "4932", "7227", "6239",
-            "287", "1282", "1313", "1288",
-        }
-    return sorted(combined)
-
-
 def download_ncbi_taxdump(dest_dir: Path) -> Path:
     """Download and extract nodes.dmp from NCBI taxdump."""
     dest_dir.mkdir(parents=True, exist_ok=True)

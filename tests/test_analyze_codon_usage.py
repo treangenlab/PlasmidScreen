@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -10,10 +11,13 @@ from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
     codon_adaptation_to_tsv_lines,
     compute_cai,
-    expand_kmer_taxids,
     parse_kraken_file,
     write_codon_adaptation_tsv,
 )
+
+DIAMOND_LINES = [
+    "read_natural_1\tref\t1\t99\t99.0\t33\t1e-5\t200\t562\tEscherichia coli",
+]
 
 
 def test_parse_kraken_file(fixtures_kraken_out: Path) -> None:
@@ -26,25 +30,21 @@ def test_parse_kraken_file(fixtures_kraken_out: Path) -> None:
     assert "562:" in k_info
 
 
-def test_expand_kmer_taxids_pads_short_run() -> None:
-    kmers = expand_kmer_taxids("562:5", read_length=100, k=35)
-    assert len(kmers) == 66
-    assert kmers[0] == "562"
-
-
 def test_compute_cai_perfect_match() -> None:
     weights = {"ATG": 1.0, "AAA": 1.0}
     assert compute_cai("ATGAAA", weights) == pytest.approx(1.0)
 
 
+@patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
 def test_analyze_codon_adaptation_natural_reads_only(
+    mock_diamond,
     sample_fasta: Path,
-    sample_kraken_out: Path,
     codon_store_dir: Path,
 ) -> None:
-    results = analyze_codon_adaptation(
+    mock_diamond.return_value = (DIAMOND_LINES, None)
+    results, _path = analyze_codon_adaptation(
         sample_fasta,
-        sample_kraken_out,
+        diamond_db="db.dmnd",
         codon_usage_dir=codon_store_dir,
         include_read_ids={"read_natural_1"},
     )
@@ -57,48 +57,55 @@ def test_analyze_codon_adaptation_natural_reads_only(
     assert 0.0 <= r.cai_vs_host <= 1.0
 
 
-def test_analyze_skips_unclassified(
+@patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
+def test_analyze_skips_reads_without_diamond_hits(
+    mock_diamond,
     sample_fasta: Path,
-    sample_kraken_out: Path,
     codon_store_dir: Path,
 ) -> None:
-    results = analyze_codon_adaptation(
+    mock_diamond.return_value = ([], None)
+    results, _path = analyze_codon_adaptation(
         sample_fasta,
-        sample_kraken_out,
+        diamond_db="db.dmnd",
         codon_usage_dir=codon_store_dir,
         include_read_ids={"read_unclassified"},
     )
     assert results == []
 
 
+@patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
 def test_missing_reference_raises(
+    mock_diamond,
     sample_fasta: Path,
-    tmp_path: Path,
     codon_store_dir: Path,
 ) -> None:
-    kraken = tmp_path / "kraken_missing_host.out"
-    kraken.write_text("C\tread_natural_1\t99999\t100\t0:1\t99999:66\n")
+    mock_diamond.return_value = (
+        ["read_natural_1\tref\t1\t99\t99.0\t33\t1e-5\t200\t99999\t\n"],
+        None,
+    )
     with pytest.raises(MissingCodonReferenceError) as exc:
         analyze_codon_adaptation(
             sample_fasta,
-            kraken,
+            diamond_db="db.dmnd",
             codon_usage_dir=codon_store_dir,
             include_read_ids={"read_natural_1"},
         )
     assert "99999" in exc.value.missing_host_taxids
 
 
+@patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
 def test_write_tsv_roundtrip(
+    mock_diamond,
     sample_fasta: Path,
-    sample_kraken_out: Path,
     codon_store_dir: Path,
     tmp_path: Path,
 ) -> None:
+    mock_diamond.return_value = (DIAMOND_LINES, None)
     out = tmp_path / "codon.tsv"
     path, results = write_codon_adaptation_tsv(
-        sample_fasta,
-        sample_kraken_out,
         out,
+        sample_fasta,
+        diamond_db="db.dmnd",
         codon_usage_dir=codon_store_dir,
         include_read_ids={"read_natural_1"},
     )

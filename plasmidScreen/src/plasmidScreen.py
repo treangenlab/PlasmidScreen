@@ -28,8 +28,8 @@ from plasmidScreen.lib.models import (
     ScreenResult,
 )
 from plasmidScreen.src.analyze_codon_usage import (
+    analyze_codon_adaptation,
     parse_kraken_lines,
-    analyze_codon_adaptation_with_diamond,
     write_codon_adaptation_results_tsv,
 )
 
@@ -152,7 +152,6 @@ class Workflow:
     codon_usage_dir: Path
     run_kraken_enabled: bool
     run_codon_usage: bool
-    kmer_len: int
     codon_cai_engineered_threshold: float | None
     diamond_db: Path | None
     diamond_threads: int
@@ -179,7 +178,6 @@ class Workflow:
         debug_write_kraken_output: bool = False,
         debug_write_kraken_report: bool = False,
         run_codon_usage: bool = True,
-        kmer_len: int = 21,
         codon_cai_engineered_threshold: float | None = None,
         diamond_db: str | Path | None = None,
         diamond_threads: int = 4,
@@ -208,7 +206,6 @@ class Workflow:
         self.debug_write_kraken_output = debug_write_kraken_output
         self.debug_write_kraken_report = debug_write_kraken_report
         self.run_codon_usage = run_codon_usage
-        self.kmer_len = kmer_len
         self.codon_cai_engineered_threshold = codon_cai_engineered_threshold
         self._kraken_lines = None
         self._kraken_data = None
@@ -430,7 +427,7 @@ class Workflow:
             raise ValueError(
                 "diamond_output_path is required when debug_write_diamond_output=True."
             )
-        results, diamond_path = analyze_codon_adaptation_with_diamond(
+        results, diamond_path = analyze_codon_adaptation(
             self.fasta_file,
             diamond_db=self.diamond_db,
             diamond_threads=self.diamond_threads,

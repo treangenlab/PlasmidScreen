@@ -175,6 +175,11 @@ class CodonUsageStore:
         return self._parents.get(str(taxid))
 
     def resolve_reference_taxid(self, taxid: str | int) -> Optional[str]:
+        """
+        This method finds a taxonomy going up the tree to find a taxa that resolves in the tree
+        that we have a codon table for.
+
+        """
         if str(taxid) in ("0", ""):
             return None
         current = str(taxid)
@@ -191,11 +196,11 @@ class CodonUsageStore:
 
     def get_cai_weights_for_host(
         self, host_taxid: str | int
-    ) -> tuple[Optional[dict[str, float]], Optional[str]]:
+    ) -> Optional[dict[str, float]]:
         ref = self.resolve_reference_taxid(host_taxid)
         if ref is None:
-            return None, None
-        return self.get_cai_weights(ref), ref
+            return None
+        return self.get_cai_weights(ref)
 
     def missing_host_taxids(self, host_taxids: Iterable[str | int]) -> list[str]:
         """Host taxids with no resolvable reference table in this store."""
@@ -235,7 +240,3 @@ class CodonUsageStore:
         self._parents = parse_taxonomy_nodes(nodes_dmp)
         self._dirty = True
         return len(self._parents)
-
-
-# Backward-compatible alias
-CodonUsageDB = CodonUsageStore

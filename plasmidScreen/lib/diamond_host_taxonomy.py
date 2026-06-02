@@ -91,14 +91,14 @@ def read_diamond_output(path: str | Path) -> list[str]:
 
 
 def resolve_diamond_lines(
-    reads_path: str | Path,
-    diamond_db: str | Path | None,
-    *,
-    run_diamond: bool = True,
-    output_path: str | Path | None = None,
-    debug_write_output: bool = False,
-    threads: int = 4,
-    extra_args: Sequence[str] | None = None,
+        reads_path: str | Path,
+        diamond_db: str | Path | None,
+        *,
+        run_diamond: bool = True,
+        output_path: str | Path | None = None,
+        debug_write_output: bool = False,
+        threads: int = 4,
+        extra_args: Sequence[str] | None = None,
 ) -> tuple[list[str], Path | None]:
     """
     Run DIAMOND or load a saved TSV.
@@ -135,12 +135,11 @@ def resolve_diamond_lines(
 
 
 def run_diamond_blastx(
-    reads_path: str | Path,
-    diamond_db: str | Path,
-    *,
-    threads: int = 4,
-    extra_args: Sequence[str] | None = None,
-    output_path: str | Path | None = None,
+        reads_path: str | Path,
+        diamond_db: str | Path,
+        threads: int = 4,
+        extra_args: Sequence[str] | None = None,
+        output_path: str | Path | None = None,
 ) -> list[str]:
     """Run DIAMOND blastx; ORF detection is built in (--min-orf)."""
     reads_path = Path(reads_path)
@@ -228,11 +227,11 @@ def parse_diamond_tsv(lines: Iterable[str]) -> dict[str, list[DiamondHit]]:
 
 
 def hits_to_orf_intervals(
-    read_id: str,
-    hits: Sequence[DiamondHit],
-    *,
-    merge_gap_bp: int = 30,
-    min_orf_len_bp: int = 90,
+        read_id: str,
+        hits: Sequence[DiamondHit],
+        *,
+        merge_gap_bp: int = 30,
+        min_orf_len_bp: int = 30,
 ) -> list[OrfInterval]:
     """Merge DIAMOND hit coordinates into ORF intervals on the read (coordinates only)."""
     if not hits:
@@ -277,41 +276,8 @@ def hits_to_orf_intervals(
     return intervals
 
 
-def _lineage(taxid: str, parents: dict[str, str]) -> list[str]:
-    out: list[str] = []
-    cur = str(taxid)
-    seen: set[str] = set()
-    while cur and cur not in seen and cur not in ("0", ""):
-        out.append(cur)
-        seen.add(cur)
-        parent = parents.get(cur)
-        if parent is None or parent == cur:
-            break
-        cur = parent
-    return out
-
-
-def lca_taxid(taxids: Sequence[str], parents: dict[str, str]) -> Optional[str]:
-    clean = [t for t in (str(x) for x in taxids) if t not in ("0", "")]
-    if not clean:
-        return None
-    lineages = [_lineage(t, parents) for t in clean]
-    if any(not lin for lin in lineages):
-        return None
-    common = set(lineages[0])
-    for lin in lineages[1:]:
-        common.intersection_update(lin)
-        if not common:
-            return None
-    for t in lineages[0]:
-        if t in common:
-            return t
-    return None
-
-
 def majority_taxid(
-    taxids: Sequence[str],
-    parents: dict[str, str],
+        taxids: Sequence[str],
 ) -> Optional[str]:
     clean = [t for t in (str(x) for x in taxids) if t not in ("0", "")]
     if not clean:
@@ -320,9 +286,7 @@ def majority_taxid(
     for t in clean:
         counts[t] = counts.get(t, 0) + 1
     best = max(counts.items(), key=lambda kv: kv[1])
-    if best[1] > len(clean) / 2:
-        return best[0]
-    return lca_taxid(clean, parents)
+    return best[0]
 
 
 def staxids_from_hits(hits: Sequence[DiamondHit]) -> list[str]:
@@ -333,11 +297,9 @@ def staxids_from_hits(hits: Sequence[DiamondHit]) -> list[str]:
 
 
 def infer_orfs_and_host_taxids(
-    diamond_lines: Iterable[str],
-    *,
-    taxonomy_parents: dict[str, str],
-    merge_gap_bp: int = 30,
-    min_orf_len_bp: int = 90,
+        diamond_lines: Iterable[str],
+        merge_gap_bp: int = 30,
+        min_orf_len_bp: int = 30,
 ) -> tuple[dict[str, list[OrfInterval]], dict[str, Optional[str]]]:
     """DIAMOND TSV -> ORF intervals (qstart/qend) and per-read host taxid (staxids)."""
     hits_by_read = parse_diamond_tsv(diamond_lines)
@@ -351,20 +313,6 @@ def infer_orfs_and_host_taxids(
             merge_gap_bp=merge_gap_bp,
             min_orf_len_bp=min_orf_len_bp,
         )
-        host_by_read[read_id] = majority_taxid(
-            staxids_from_hits(hits), taxonomy_parents
-        )
+        host_by_read[read_id] = majority_taxid(staxids_from_hits(hits))
 
     return orfs_by_read, host_by_read
-
-
-def infer_host_taxids_from_diamond(
-    diamond_lines: Iterable[str],
-    *,
-    taxonomy_parents: dict[str, str],
-) -> dict[str, Optional[str]]:
-    """Per-read host taxid from DIAMOND staxids only."""
-    _, host_by_read = infer_orfs_and_host_taxids(
-        diamond_lines, taxonomy_parents=taxonomy_parents
-    )
-    return host_by_read

@@ -162,8 +162,8 @@ Effective k-mers per window: `window_size - 21 + 1` (Kraken k=21 minimizers in w
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `kmer_len` | 35 | K-mer length for per-nucleotide taxid projection |
-| `include_read_ids` | all Natural | If set, only these read IDs are scored |
+| `diamond_db` | required | DIAMOND protein database (`.dmnd`) for blastx ORF/host inference |
+| `include_read_ids` | all reads with DIAMOND hits | If set, only these read IDs are scored |
 | `codon_usage_dir` | user data dir | Pre-built reference directory |
 
 ---
@@ -353,7 +353,7 @@ build-codon-db build
 ```python
 from plasmidScreen import (
     build_codon_reference,       # -> BuildCodonReferenceResult
-    analyze_codon_adaptation,    # -> list[CodonAdaptationResult]
+    analyze_codon_adaptation,    # -> tuple[list[CodonAdaptationResult], Path | None]
     run_screen,                  # -> ScreenResult
     write_codon_adaptation_tsv,  # -> tuple[str, list[CodonAdaptationResult]]
     CodonUsageStore,
@@ -365,4 +365,4 @@ Recommended airgapped workflow:
 
 1. Networked: `build_codon_reference(dir, taxids=...)` or from Kraken taxid list.
 2. Copy `dir` to airgapped environment.
-3. Run Kraken2 locally → `analyze_codon_adaptation(reads, kraken.out, codon_usage_dir=dir)` or `run_screen(..., run_kraken=False)`.
+3. Run DIAMOND blastx (or reuse saved TSV) → `analyze_codon_adaptation(reads, diamond_db=..., codon_usage_dir=dir)` or full `run_screen(..., diamond_db=...)`.

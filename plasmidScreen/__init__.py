@@ -8,8 +8,12 @@ Library usage (airgapped screening requires a pre-built codon reference):
     # Step 1 — networked machine: build reference JSON from Codon Statistics Database
     build_codon_reference("codon_usage/")  # all taxids in CSDB by default
 
-    # 2. On airgapped machine — analyze
-    results = analyze_codon_adaptation("reads.fa", "kraken.out", codon_usage_dir="codon_usage/")
+    # 2. On airgapped machine — analyze (DIAMOND blastx + pre-built CSDB tables)
+    results, _diamond_path = analyze_codon_adaptation(
+        "reads.fa",
+        diamond_db="/path/to/protein.dmnd",
+        codon_usage_dir="codon_usage/",
+    )
     for r in results:
         print(r.read_id, r.cai_vs_host)
 """

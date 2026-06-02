@@ -1,6 +1,7 @@
 """PlasmidScreen library exceptions."""
 from __future__ import annotations
 
+
 class PlasmidScreenError(Exception):
     """Base error for library usage."""
 

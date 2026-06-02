@@ -22,12 +22,12 @@ build_codon_reference(
     csdb_archive="/path/to/codonstatsdb_March2022.tar.gz",  # optional; auto-download if omitted
 )
 
-# Step 2 — airgapped: codon analysis only (structured results)
-results = analyze_codon_adaptation(
+# Step 2 — airgapped: codon analysis (DIAMOND blastx + CSDB reference)
+results, _diamond_path = analyze_codon_adaptation(
     "reads.fa",
-    "kraken.out",
+    diamond_db="/path/to/protein.dmnd",
     codon_usage_dir="codon_usage/",
-    include_read_ids={"read1", "read2"},  # optional Natural-read filter
+    include_read_ids={"read1", "read2"},  # optional read filter
 )
 for row in results:
     print(row.read_id, row.host_taxid, row.reference_taxid, row.cai_vs_host)

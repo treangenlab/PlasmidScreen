@@ -32,7 +32,6 @@ __all__ = [
     "build_codon_reference",
     "build_codon_database",
     "all_csdb_taxids",
-    "default_reference_taxids",
     "default_codon_usage_dir",
     "run_screen",
     "taxids_from_kraken_output",
@@ -59,7 +58,6 @@ def run_screen(
     debug_write_kraken_report: bool = False,
     run_codon_usage: bool = True,
     codon_usage_output_path: str | Path | None = None,
-    kmer_len: int = 35,
     codon_cai_engineered_threshold: float | None = None,
     diamond_db: str | Path | None = None,
     diamond_threads: int = 4,
@@ -73,13 +71,32 @@ def run_screen(
 
     Parameters
     ----------
+    fasta_file:str
+        path of fasta file for reading and engineering detection
+    kraken_db: str
+
+    engineered_report_path
+        When set, writes the engineered k-mer scan TSV to this path.
+    kraken_output_path
+    threads
+    window_size
+    engineered_kmer_threshold
     codon_usage_dir
         Pre-built reference directory (codon_tables.json). Required when
         run_codon_usage is True.
     run_kraken
         If False, kraken_output_path must be provided (airgapped Kraken step done).
-    engineered_report_path
-        When set, writes the engineered k-mer scan TSV to this path.
+    debug_write_diamond_output
+    debug_write_kraken_output
+    debug_write_kraken_report
+    run_codon_usage
+    codon_usage_output_path
+    codon_cai_engineered_threshold
+    diamond_db
+    diamond_threads
+    diamond_extra_args
+    run_diamond
+
     diamond_output_path
         Path to save (``debug_write_diamond_output``) or load (``run_diamond=False``)
         DIAMOND outfmt 6 TSV.
@@ -112,7 +129,6 @@ def run_screen(
         debug_write_kraken_output=debug_write_kraken_output,
         debug_write_kraken_report=debug_write_kraken_report,
         run_codon_usage=run_codon_usage,
-        kmer_len=kmer_len,
         codon_cai_engineered_threshold=codon_cai_engineered_threshold,
         diamond_db=str(diamond_db) if diamond_db else None,
         diamond_threads=diamond_threads,
@@ -125,7 +141,6 @@ def run_screen(
 
 
 def build_codon_database(
-    *,
     output_dir: str | Path | None = None,
     taxids: Iterable[str | int] | None = None,
     taxids_file: str | Path | None = None,
@@ -137,7 +152,8 @@ def build_codon_database(
     gene_set: GeneSet = "nuclear",
 ) -> BuildCodonReferenceResult:
     """
-    Convenience wrapper to build the codon usage reference database.
+    Convenience wrapper to build the codon usage reference database. Requires internet connection
+    to fetch resources from Codon Statistics Database Krishnamurthy et al. 2022, Molecular Biology and Evolution.
 
     This mirrors the build CLI behavior:
     - union of explicit taxids + taxids_file + kraken_output taxids

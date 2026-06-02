@@ -3,7 +3,6 @@ from __future__ import annotations
 from plasmidScreen.lib.diamond_host_taxonomy import (
     DIAMOND_OUTFMT,
     hits_to_orf_intervals,
-    infer_host_taxids_from_diamond,
     infer_orfs_and_host_taxids,
     lca_taxid,
     parse_diamond_tsv,
@@ -142,7 +141,7 @@ def test_lca_taxid() -> None:
     assert lca_taxid(["562", "561"], parents) == "561"
 
 
-def test_infer_host_taxids_from_diamond_majority() -> None:
+def test_infer_orfs_and_host_taxids_majority_host() -> None:
     parents = {
         "562": "561",
         "561": "543",
@@ -156,8 +155,11 @@ def test_infer_host_taxids_from_diamond_majority() -> None:
         _diamond_line("read1", "b", "1", "100", "98", "100", "1e-40", "180", "562", ""),
         _diamond_line("read1", "c", "300", "360", "90", "50", "1e-10", "50", "9606", ""),
     ]
-    host_by_read = infer_host_taxids_from_diamond(lines, taxonomy_parents=parents)
+    orfs_by_read, host_by_read = infer_orfs_and_host_taxids(
+        lines, taxonomy_parents=parents
+    )
     assert host_by_read["read1"] == "562"
+    assert len(orfs_by_read["read1"]) >= 1
 
 
 def test_infer_orfs_and_host_taxids() -> None:
