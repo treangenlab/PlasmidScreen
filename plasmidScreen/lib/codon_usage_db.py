@@ -78,6 +78,7 @@ def parse_taxonomy_nodes(nodes_dmp: Path) -> dict[str, str]:
             parents[taxid] = parent
     return parents
 
+
 class CodonUsageStore:
     """Read-only JSON codon usage store for runtime (airgapped).
 
@@ -93,12 +94,12 @@ class CodonUsageStore:
     _dirty: bool
 
     def __init__(
-        self,
-        data_dir: str | Path,
-        *,
-        create: bool = False,
-        _tables: dict[str, CodonTableEntry] | None = None,
-        _parents: dict[str, str] | None = None,
+            self,
+            data_dir: str | Path,
+            *,
+            create: bool = False,
+            _tables: dict[str, CodonTableEntry] | None = None,
+            _parents: dict[str, str] | None = None,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.tables_path = self.data_dir / CODON_TABLES_FILE
@@ -162,7 +163,7 @@ class CodonUsageStore:
     def resolve_reference_taxid(self, taxid: str | int) -> Optional[str]:
         """
         This method finds a taxonomy going up the tree to find a taxa that resolves in the tree
-        that we have a codon table for.
+        that we have a codon table for. This is meant to handle cases where taxa is too specific or edge cases.
 
         """
         if str(taxid) in ("0", ""):
@@ -179,9 +180,10 @@ class CodonUsageStore:
             current = parent
         return None
 
-    def get_cai_weights_for_host(
-        self, host_taxid: str | int
-    ) -> Optional[dict[str, float]]:
+    def get_cai_weights_for_host(self, host_taxid: str | int) -> Optional[dict[str, float]]:
+        """
+        This function weights the codons depending on their frequencies from the JSON.
+        """
         ref = self.resolve_reference_taxid(host_taxid)
         if ref is None:
             return None
@@ -203,14 +205,8 @@ class CodonUsageStore:
         if missing:
             raise MissingCodonReferenceError(missing, str(self.data_dir))
 
-    def set_codon_table(
-        self,
-        taxid: str | int,
-        frequencies: dict[str, float],
-        *,
-        scientific_name: str | None = None,
-        source: str = "csdb",
-    ) -> None:
+    def set_codon_table(self, taxid: str | int, frequencies: dict[str, float],
+                        scientific_name: str | None = None, source: str = "csdb") -> None:
         if not self._writable:
             raise RuntimeError("Cannot modify a read-only CodonUsageStore")
         entry: dict[str, Any] = {"source": source, "frequencies": frequencies}

@@ -25,6 +25,7 @@ from plasmidScreen.lib.types import GeneSet
 
 NCBI_TAXDUMP_URL = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
 
+
 def download_ncbi_taxdump(dest_dir: Path) -> Path:
     """Download and extract nodes.dmp from NCBI taxdump."""
     dest_dir.mkdir(parents=True, exist_ok=True)
