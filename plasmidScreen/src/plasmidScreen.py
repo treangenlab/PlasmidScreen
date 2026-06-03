@@ -5,6 +5,7 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -26,6 +27,7 @@ from plasmidScreen.lib.models import (
     ReadFlagDetail,
     ReadEngineeringLabel,
     ScreenResult,
+    compute_engineered_overall,
 )
 from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
@@ -500,11 +502,22 @@ class Workflow:
             if cai is not None and self.codon_cai_engineered_threshold is not None:
                 engineered_by_codon = cai < self.codon_cai_engineered_threshold
 
+            engineered_by_kmer = lbl.label == "Synthetic"
+            engineered_overall = compute_engineered_overall(
+                engineered_by_kmer_scan=engineered_by_kmer,
+                engineered_by_codon_cai=engineered_by_codon,
+            )
+            overall_label: Literal["Natural", "Synthetic"] = (
+                "Synthetic" if engineered_overall else "Natural"
+            )
+
             per_read.append(
                 ReadFlagDetail(
                     read_id=lbl.read_id,
                     kmer_label=lbl.label,
-                    engineered_by_kmer_scan=(lbl.label == "Synthetic"),
+                    engineered_by_kmer_scan=engineered_by_kmer,
+                    engineered_overall=engineered_overall,
+                    overall_label=overall_label,
                     engineered_kmer_max_in_window=kmer_max_by_read.get(lbl.read_id),
                     engineered_kmer_threshold=self.threshold,
                     engineered_kmer_window_size=self.window_size,
@@ -526,4 +539,7 @@ class Workflow:
             engineered_report_path=engineered_path,
             codon_usage_report_path=codon_path,
             diamond_output_path=self._diamond_output_saved,
+            engineered_kmer_threshold=self.threshold,
+            engineered_kmer_window_size=self.window_size,
+            codon_cai_engineered_threshold=self.codon_cai_engineered_threshold,
         )

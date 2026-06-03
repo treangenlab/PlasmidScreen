@@ -29,6 +29,7 @@ flowchart LR
 | Reference build | Required | `build_codon_reference()` / `python plasmidScreen.py build` |
 | Full screening | Not required | `run_screen()` / `python plasmidScreen.py screen` |
 | Codon-only | Not required | `analyze_codon_adaptation()` |
+| Overall engineered call | Not required | `run_screen()` → `ScreenResult.per_read` |
 
 ---
 
@@ -176,7 +177,9 @@ Effective k-mers per window: `window_size - 21 + 1` (Kraken k=21 minimizers in w
 | `run_diamond` | `--run-diamond` / `--no-run-diamond` | true | Run blastx vs load TSV |
 | `codon_usage_dir` | `--codon-usage-dir` | user data dir | Pre-built reference directory |
 | `include_read_ids` | (library) | all DIAMOND hits | Full screen passes Natural read IDs only |
-| `codon_cai_engineered_threshold` | `--codon-cai-threshold` | — | Optional low-CAI engineered flag |
+| `codon_cai_engineered_threshold` | `--codon-cai-threshold` | — | When set, CAI below this value flags `engineered_by_codon_cai` and can set `engineered_overall` |
+
+These parameters are copied onto `ScreenResult` (`engineered_kmer_threshold`, `engineered_kmer_window_size`, `codon_cai_engineered_threshold`) so consumers know which thresholds produced each run.
 
 ---
 
@@ -188,7 +191,7 @@ Effective k-mers per window: `window_size - 21 + 1` (Kraken k=21 minimizers in w
 
 | Column | Type | Meaning |
 |--------|------|---------|
-| Label | `Natural` \| `Synthetic` | Per-read engineering label |
+| Label | `Natural` \| `Synthetic` | **K-mer scan only** (not the combined `overall_label`; see §3.4) |
 | Read_ID | string | Read identifier |
 | Methods | string | Method tags (e.g. `engineered_kmer_scan`) |
 | EngineeredKmerMaxInWindow | int | Max engineered-kmer count observed in any window |
@@ -228,7 +231,39 @@ Read_ID	CDS_Strand	CDS_Range	Host_TaxID	Reference_TaxID	CDS_Len_bp	CAI_vs_Host
 read_natural_1	+	0-99	562	562	99	0.7234
 ```
 
-### 3.3 Library return types
+### 3.4 Overall engineered classification (library)
+
+Produced only in **`ScreenResult`** / **`ReadFlagDetail`** (not in the k-mer report TSV file).
+
+For each read in `per_read`:
+
+```
+engineered_overall =
+    engineered_by_kmer_scan
+    OR (codon_cai_engineered_threshold is set AND engineered_by_codon_cai is True)
+```
+
+| Field | Meaning |
+|-------|---------|
+| `engineered_overall` | `True` if the read is engineered under the combined rule above |
+| `overall_label` | `"Synthetic"` if `engineered_overall`, else `"Natural"` |
+| `engineered_methods` | `["engineered_kmer_scan"]`, `["codon_cai"]`, both, or `[]` |
+| `engineered_any` | Alias for `engineered_overall` |
+
+**Run-level aggregates** (on `ScreenResult`):
+
+| Property | Meaning |
+|----------|---------|
+| `overall_synthetic_count` | Number of reads with `engineered_overall=True` |
+| `overall_natural_count` | Number of reads with `engineered_overall=False` |
+| `engineered_read_ids` | Set of read IDs engineered overall |
+| `natural_read_ids_overall` | Set of read IDs natural overall |
+
+**Count mismatch:** `engineered_scan.synthetic_count` counts k-mer **Synthetic** reads only. `overall_synthetic_count` can be higher when `--codon-cai-threshold` flags additional Natural reads via low CAI.
+
+Use `compute_engineered_overall()` from the library to apply the same rule outside `run_screen`.
+
+### 3.5 Library return types
 
 #### `ScreenResult`
 
@@ -236,8 +271,15 @@ read_natural_1	+	0-99	562	562	99	0.7234
 |-------|------|-------------|
 | `engineered_scan` | `EngineeredScanResult` | All read labels and counts |
 | `codon_adaptation` | `list[CodonAdaptationResult]` | Natural reads only (if codon enabled) |
-| `per_read` | `list[ReadFlagDetail]` | Per-read method attribution and evidence |
-| `engineered_report_path` | `Path \| None` | Written engineered report |
+| `per_read` | `list[ReadFlagDetail]` | Per-read method attribution, overall engineered call |
+| `engineered_kmer_threshold` | int | K-mer threshold used for this run |
+| `engineered_kmer_window_size` | int | Window size used for this run |
+| `codon_cai_engineered_threshold` | float \| None | CAI threshold if codon flagging enabled |
+| `overall_synthetic_count` | int (property) | Reads with `engineered_overall=True` |
+| `overall_natural_count` | int (property) | Reads with `engineered_overall=False` |
+| `engineered_read_ids` | set[str] (property) | IDs classified engineered overall |
+| `natural_read_ids_overall` | set[str] (property) | IDs classified natural overall |
+| `engineered_report_path` | `Path \| None` | Written engineered report (k-mer labels only) |
 | `codon_usage_report_path` | `Path \| None` | Written codon TSV |
 | `diamond_output_path` | `Path \| None` | Saved or loaded DIAMOND TSV path |
 
@@ -275,7 +317,11 @@ Per-read attribution and evidence for engineered calls.
 | `engineered_kmer_window_size` | int \| None | Window size used |
 | `cai_vs_host` | float \| None | CAI score vs host |
 | `codon_cai_threshold` | float \| None | Threshold used for codon CAI flagging |
-| `engineered_by_codon_cai` | bool \| None | True if CAI < threshold |
+| `engineered_by_codon_cai` | bool \| None | `True` if CAI &lt; threshold; `False` if above; `None` if threshold unset or no CAI |
+| `engineered_overall` | bool | Combined decision (see §3.4) |
+| `overall_label` | `"Natural"` \| `"Synthetic"` | Human-readable combined label |
+| `engineered_methods` | list[str] (property) | Contributing methods: `engineered_kmer_scan`, `codon_cai` |
+| `engineered_any` | bool (property) | Alias for `engineered_overall` |
 
 #### `BuildCodonReferenceResult`
 
@@ -302,7 +348,15 @@ Per-read attribution and evidence for engineered calls.
 - Standalone `analyze_codon_adaptation`: scores all reads with DIAMOND hits unless `include_read_ids` is set.
 - If zero Natural reads, codon output is empty (no TSV unless path set with zero rows).
 
-### 4.3 Airgapped / reference errors
+### 4.3 Overall engineered decision
+
+- Populated in `Workflow.run()` for every read in `engineered_scan.labels`.
+- **K-mer component:** `engineered_by_kmer_scan` is `True` when `kmer_label == "Synthetic"` (threshold `--threshold`, window `--window_size`).
+- **Codon component:** only evaluated when `codon_cai_engineered_threshold` is set on the workflow. For Natural reads with a CAI score, `engineered_by_codon_cai = (cai_vs_host < threshold)`. Reads without CAI (e.g. k-mer Synthetic, or no DIAMOND hit) keep `engineered_by_codon_cai=None`.
+- **Overall:** `engineered_overall` is `True` if either component is `True`; `overall_label` is `"Synthetic"` or `"Natural"` accordingly.
+- When `--codon-cai-threshold` is omitted, `engineered_overall` equals `engineered_by_kmer_scan` for all reads.
+
+### 4.4 Airgapped / reference errors
 
 | Condition | Exception |
 |-----------|-----------|
@@ -311,7 +365,7 @@ Per-read attribution and evidence for engineered calls.
 
 No network access occurs during `analyze_codon_adaptation` or `run_screen` codon steps.
 
-### 4.4 CAI computation
+### 4.5 CAI computation
 
 - **ORF selection:** DIAMOND blastx with `--min-orf`; merge overlapping hit intervals per read; choose longest merged interval; slice read sequence for CAI.
 - **Host taxid:** majority of `staxids` across hits for the read.
@@ -376,9 +430,12 @@ from plasmidScreen import (
     build_codon_reference,       # -> BuildCodonReferenceResult
     build_codon_database,        # convenience wrapper for build CLI
     analyze_codon_adaptation,    # -> tuple[list[CodonAdaptationResult], Path | None]
-    run_screen,                  # -> ScreenResult
+    run_screen,                  # -> ScreenResult (per_read engineered_overall)
     write_codon_adaptation_tsv,  # -> tuple[str, list[CodonAdaptationResult]]
     taxids_from_kraken_output,   # taxids for reference subset builds
+    compute_engineered_overall,  # same OR rule as run_screen per_read
+    ReadFlagDetail,
+    ScreenResult,
     CodonUsageStore,
     default_codon_usage_dir,
 )

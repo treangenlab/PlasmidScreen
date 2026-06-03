@@ -47,9 +47,10 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
                                                         help="Directory with codon_tables.json "
                                                              "reference data.")] = DEFAULT_CODON_USAGE_DIR,
            codon_cai_engineered_threshold: Annotated[float | None, typer.Option("--codon-cai-threshold",
-                                                                                help="If set, flag reads as "
-                                                                                     "engineered by codon CAI when "
-                                                                                     "CAI < threshold.")] = None,
+                                                                                help="If set, Natural reads with "
+                                                                                     "CAI below this value are "
+                                                                                     "engineered_overall in "
+                                                                                     "ScreenResult (library).")] = None,
            diamond_db: Annotated[str | None, typer.Option("--diamond-db",
                                                           help="DIAMOND database (.dmnd) used to infer "
                                                                "ORFs/host taxid for codon CAI. Required when "

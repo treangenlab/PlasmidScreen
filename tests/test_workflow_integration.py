@@ -46,8 +46,15 @@ def test_workflow_run_without_kraken(
     assert len(result.per_read) >= 2
     per = {r.read_id: r for r in result.per_read}
     assert per["read_synthetic_1"].engineered_by_kmer_scan is True
+    assert per["read_synthetic_1"].engineered_overall is True
+    assert per["read_synthetic_1"].overall_label == "Synthetic"
     assert per["read_synthetic_1"].engineered_methods == ["engineered_kmer_scan"]
     assert per["read_natural_1"].engineered_by_kmer_scan is False
+    assert per["read_natural_1"].engineered_overall is False
+    assert per["read_natural_1"].overall_label == "Natural"
+    assert result.overall_synthetic_count == 1
+    assert result.overall_natural_count == 2
+    assert result.engineered_read_ids == {"read_synthetic_1"}
     assert result.codon_usage_report_path is not None
     assert result.codon_usage_report_path.exists()
     assert result.engineered_report_path == report

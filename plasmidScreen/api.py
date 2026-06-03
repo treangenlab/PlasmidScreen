@@ -35,7 +35,6 @@ __all__ = [
     "all_csdb_taxids",
     "default_codon_usage_dir",
     "run_screen",
-    "taxids_from_kraken_output",
     "write_codon_adaptation_tsv",
     "BuildCodonReferenceResult",
     "CodonAdaptationResult",
@@ -94,8 +93,13 @@ def run_screen(
     codon_usage_output_path
         Optional path for codon adaptation TSV (Natural reads only).
     codon_cai_engineered_threshold
-        If set, annotate reads with low CAI as engineered-by-codon in output TSV and
-        :attr:`~plasmidScreen.lib.models.ReadFlagDetail.engineered_by_codon_cai`.
+        If set, reads with CAI below this value get ``engineered_by_codon_cai=True`` and
+        may be marked ``engineered_overall=True`` on :class:`~plasmidScreen.lib.models.ReadFlagDetail`
+        even when the k-mer scan labeled them Natural. Also adds columns to the codon TSV when written.
+    engineered_kmer_threshold
+        Min engineered (32630) k-mers in a window to label a read Synthetic by k-mer scan.
+    window_size
+        Sliding window size (bp) for the k-mer scan.
     diamond_db
         DIAMOND protein database (``.dmnd``). Required when ``run_codon_usage=True`` and
         ``run_diamond=True``.
@@ -110,7 +114,9 @@ def run_screen(
     Returns
     -------
     ScreenResult
-        Engineered labels, optional codon results, per-read flags, and output paths.
+        Includes ``per_read`` with ``engineered_overall`` / ``overall_label`` per read,
+        run-level ``overall_synthetic_count`` / ``engineered_read_ids``, and stored
+        threshold values used for the combined decision.
     """
     if run_codon_usage:
         if run_diamond and diamond_db is None:
