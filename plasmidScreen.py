@@ -6,8 +6,12 @@ from typing import Annotated
 
 from plasmidScreen.lib.funcs import get_default_db_path
 from plasmidScreen.lib.codon_usage_db import default_codon_usage_dir
+from plasmidScreen.lib.codon_usage_sources import default_csdb_archive_path
 from plasmidScreen.api import run_screen
-from plasmidScreen.scripts.build_codon_usage_db import app as build_codon_db_app
+from pathlib import Path
+from plasmidScreen.lib.codon_usage_build import build_codon_reference
+from plasmidScreen.lib.types import GeneSet
+
 
 FORMAT = "%(message)s"
 logging.basicConfig(level=logging.INFO, format=FORMAT, datefmt="[%X]", handlers=[RichHandler()])
@@ -23,10 +27,10 @@ DEFAULT_CODON_USAGE_DIR = str(default_codon_usage_dir())
 def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="Fasta file ")],
            output_report_path: Annotated[str, typer.Argument(help="Engineered k-mer scan report TSV path")],
            kraken_output_path: Annotated[str | None, typer.Option("--kraken-output-path",
-                                                                 help="Optional path to read/write raw Kraken2 "
-                                                                      "classifications. Required when "
-                                                                      "--run-kraken=false or when "
-                                                                      "--debug-write-kraken-out is set.")] = None,
+                                                                  help="Optional path to read/write raw Kraken2 "
+                                                                       "classifications. Required when "
+                                                                       "--run-kraken=false or when "
+                                                                       "--debug-write-kraken-out is set.")] = None,
            window_size: Annotated[int, typer.Option("--window_size",
                                                     help="Window size to scan for engineered k-mers")] = 200,
            engineered_k_mer_threshold: Annotated[int, typer.Option("--threshold",
@@ -43,37 +47,37 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
                                                                                      "engineered by codon CAI when "
                                                                                      "CAI < threshold.")] = None,
            diamond_db: Annotated[str | None, typer.Option("--diamond-db",
-                                                         help="DIAMOND database (.dmnd) used to infer "
-                                                              "ORFs/host taxid for codon CAI. Required when "
-                                                              "codon usage is enabled.")] = None,
+                                                          help="DIAMOND database (.dmnd) used to infer "
+                                                               "ORFs/host taxid for codon CAI. Required when "
+                                                               "codon usage is enabled.")] = None,
            diamond_threads: Annotated[int, typer.Option("--diamond-threads",
-                                                       help="Threads for DIAMOND (defaults to "
-                                                            "--threads if not set).")] = 0,
+                                                        help="Threads for DIAMOND (defaults to "
+                                                             "--threads if not set).")] = 0,
            diamond_extra_args: Annotated[str | None, typer.Option("--diamond-args",
-                                                                 help="Extra DIAMOND args passed verbatim "
-                                                                      "(comma-separated).")] = None,
+                                                                  help="Extra DIAMOND args passed verbatim "
+                                                                       "(comma-separated).")] = None,
            diamond_output_path: Annotated[str | None, typer.Option("--diamond-output-path",
-                                                                  help="Save/load DIAMOND outfmt 6 TSV. "
-                                                                       "Required with --debug-write-diamond-out "
-                                                                       "or --no-run-diamond.")] = None,
+                                                                   help="Save/load DIAMOND outfmt 6 TSV. "
+                                                                        "Required with --debug-write-diamond-out "
+                                                                        "or --no-run-diamond.")] = None,
            debug_write_diamond_out: Annotated[bool, typer.Option("--debug-write-diamond-out",
-                                                                help="Write DIAMOND TSV to --diamond-output-path "
-                                                                     "(debug/reuse).")] = False,
+                                                                 help="Write DIAMOND TSV to --diamond-output-path "
+                                                                      "(debug/reuse).")] = False,
            run_diamond: Annotated[bool, typer.Option("--run-diamond/--no-run-diamond",
-                                                    help="Run DIAMOND blastx (default). If disabled, "
-                                                         "--diamond-output-path must exist.")] = True,
+                                                     help="Run DIAMOND blastx (default). If disabled, "
+                                                          "--diamond-output-path must exist.")] = True,
            skip_codon_usage: Annotated[bool, typer.Option("--skip-codon-usage",
-                                                         help="Skip codon adaptation/CAI analysis "
-                                                              "(engineered k-mer scan only).")] = False,
+                                                          help="Skip codon adaptation/CAI analysis "
+                                                               "(engineered k-mer scan only).")] = False,
            debug_write_kraken_out: Annotated[bool, typer.Option("--debug-write-kraken-out",
-                                                               help="Write raw Kraken2 classifications to "
-                                                                    "--kraken-output-path (debug).")] = False,
+                                                                help="Write raw Kraken2 classifications to "
+                                                                     "--kraken-output-path (debug).")] = False,
            debug_write_kraken_report: Annotated[bool, typer.Option("--debug-write-kraken-report",
-                                                                  help="Write Kraken2 --report file (debug).")] = False,
+                                                                   help="Write Kraken2 --report file (debug).")] = False,
            run_kraken: Annotated[bool, typer.Option("--run-kraken/--no-run-kraken",
-                                                   help="Run Kraken2 as part of the pipeline (default). If disabled, "
-                                                        "--kraken-output-path must point to an "
-                                                        "existing classifications file.")] = True,
+                                                    help="Run Kraken2 as part of the pipeline (default). If disabled, "
+                                                         "--kraken-output-path must point to an "
+                                                         "existing classifications file.")] = True,
            kraken_db_path: Annotated[str, typer.Argument(help="Kraken2 database path")] = DEFAULT_DB_PATH,
            threads: Annotated[int, typer.Option("--threads", help="Available threads to use.")] = 4,
            ) -> None:
@@ -122,7 +126,77 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
     )
 
 
-app.add_typer(build_codon_db_app, name="build-codon-db")
+def _parse_taxids(taxids: str | None, taxids_file: Path | None) -> list[str]:
+    found: set[str] = set()
+    if taxids:
+        found.update(t.strip() for t in taxids.split(",") if t.strip())
+    if taxids_file:
+        for line in taxids_file.read_text().splitlines():
+            line = line.strip().split("#")[0].strip()
+            if line:
+                found.add(line)
+    return sorted(found)
+
+
+@app.command()
+def build(
+        output_dir: Path | None = typer.Option(
+            None,
+            "--output-dir",
+            "-o",
+            help="Directory for codon_tables.json and taxonomy_parents.json",
+        ),
+        taxids: str | None = typer.Option(None, "--taxids", help="Comma-separated NCBI taxonomy IDs"),
+        taxids_file: Path | None = typer.Option(None, "--taxids-file", help="One taxid per line"),
+        skip_taxonomy: bool = typer.Option(
+            False, "--skip-taxonomy", help="Skip NCBI taxdump (no lineage resolution)"
+        ),
+        taxdump_dir: Path | None = typer.Option(None, "--taxdump-dir", help="NCBI taxdump cache directory"),
+        csdb_archive: Path | None = typer.Option(
+            None,
+            "--csdb-archive",
+            help="Path to codonstatsdb_March2022.tar.gz (default: PlasmidScreen data dir)",
+        ),
+        no_download_csdb: bool = typer.Option(
+            False,
+            "--no-download-csdb",
+            help="Do not download CSDB; require --csdb-archive to exist",
+        ),
+        gene_set: GeneSet = typer.Option(
+            "nuclear",
+            "--gene-set",
+            help="CSDB gene set: nuclear, ribosomal, mitochondrial, or plastid",
+        ),
+) -> None:
+    """Build codon usage tables from the Codon Statistics Database for airgapped CAI scoring."""
+    data_dir = output_dir or default_codon_usage_dir()
+    archive = csdb_archive or default_csdb_archive_path()
+
+    taxid_list = _parse_taxids(taxids, taxids_file)
+
+    if taxid_list:
+        typer.echo(
+            f"Building codon reference at {data_dir} for {len(taxid_list)} taxid(s) "
+            f"from CSDB archive {archive} ..."
+        )
+    else:
+        typer.echo(
+            f"Building codon reference at {data_dir} for all taxids in CSDB archive {archive} ..."
+        )
+
+    result = build_codon_reference(
+        data_dir,
+        taxid_list or None,
+        include_taxonomy=not skip_taxonomy,
+        taxdump_dir=taxdump_dir,
+        csdb_archive=archive,
+        download_csdb=not no_download_csdb,
+        gene_set=gene_set,
+    )
+    typer.echo(
+        f"Done. added={len(result.taxids_added)} skipped={len(result.taxids_skipped)} "
+        f"failed={len(result.taxids_failed)} -> {result.data_dir / 'codon_tables.json'}"
+    )
 
 
 @app.callback()
