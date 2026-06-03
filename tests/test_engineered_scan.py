@@ -1,0 +1,78 @@
+"""Tests for engineered k-mer block detection."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from plasmidScreen.src.plasmidScreen import Workflow
+
+
+@pytest.mark.parametrize(
+    "kmer_field,expected",
+    [
+        ("562:66", False),
+        ("32630:66", True),
+    ],
+)
+def test_parse_and_run_synthetic_detection(kmer_field: str, expected: bool) -> None:
+    result = Workflow.parse_and_run(kmer_field, window_size=200, threshold=25)
+    hit, max_eng = result
+    assert hit is expected
+    assert isinstance(max_eng, int)
+
+
+def test_parse_and_run_malformed_or_oversized_counts() -> None:
+    assert Workflow.parse_and_run("", window_size=200, threshold=25) == (False, 0)
+    assert Workflow.parse_and_run("562:66:extra", window_size=200, threshold=25) == (
+        False,
+        0,
+    )
+    huge = "32630:" + str(10**12)
+    assert Workflow.parse_and_run(huge, window_size=200, threshold=25)[0] in (
+        False,
+        True,
+    )
+
+
+def test_parse_and_run_numba_unbox_fallback(monkeypatch) -> None:
+    from plasmidScreen.src import plasmidScreen as ps
+
+    def _raise_type_error(*_args, **_kwargs):
+        raise TypeError(
+            "can't unbox array from PyObject into native value.  "
+            "The object maybe of a different type"
+        )
+
+    monkeypatch.setattr(ps, "fast_window_logic", _raise_type_error)
+    hit, max_eng = Workflow.parse_and_run("32630:66", window_size=200, threshold=25)
+    assert hit is True
+    assert max_eng == 25
+
+
+def test_scan_engineered_blocks_integration(
+    sample_fasta: Path,
+    sample_kraken_out: Path,
+    tmp_path: Path,
+) -> None:
+    report = tmp_path / "report.txt"
+    wf = Workflow(
+        str(sample_fasta),
+        str(report),
+        kraken_db=str(tmp_path / "kraken_db"),
+        threads=1,
+        kraken_raw_output=str(sample_kraken_out),
+        write_engineered_report=True,
+        run_kraken=False,
+        run_codon_usage=False,
+    )
+    scan = wf.scan_engineered_blocks_kraken()
+    assert scan.synthetic_count == 1
+    assert scan.natural_count == 2  # natural read + unclassified (no 32630 signal)
+    labels = {r.read_id: r.label for r in scan.labels}
+    assert labels["read_natural_1"] == "Natural"
+    assert labels["read_synthetic_1"] == "Synthetic"
+    assert labels["read_unclassified"] == "Natural"
+    text = report.read_text()
+    assert "Natural\tread_natural_1" in text
+    assert "Synthetic\tread_synthetic_1\tengineered_kmer_scan" in text
