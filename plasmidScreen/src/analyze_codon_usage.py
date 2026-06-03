@@ -10,10 +10,7 @@ from Bio import SeqIO
 from plasmidScreen.lib.codon_usage_db import CodonUsageStore, default_codon_usage_dir
 from plasmidScreen.lib.models import CodonAdaptationResult
 from plasmidScreen.lib.types import CdsOrf, KrakenReadInfo
-from plasmidScreen.lib.diamond_host_taxonomy import (
-    infer_orfs_and_host_taxids,
-    resolve_diamond_lines,
-)
+from plasmidScreen.lib.diamond_host_taxonomy import infer_orfs_and_host_taxids, resolve_diamond_lines
 
 
 def parse_kraken_file(kraken_path: str | Path) -> dict[str, KrakenReadInfo]:
@@ -42,6 +39,9 @@ def parse_kraken_lines(lines: Iterable[str]) -> dict[str, KrakenReadInfo]:
 
 
 def compute_cai(cds_seq: str, weights: dict[str, float]) -> float:
+    """
+    Compute CAI for CDS sequence by grabbing the weights of the codon usage.
+    """
     log_w_sum = 0.0
     codon_count = 0
     for i in range(0, len(cds_seq) - 2, 3):
