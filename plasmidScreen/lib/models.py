@@ -8,14 +8,17 @@ from typing import Literal, Optional
 
 @dataclass(frozen=True)
 class CodonAdaptationResult:
+    """Per-read codon adaptation scores from DIAMOND ORFs and CSDB reference weights."""
+
     read_id: str
-    cds_strand: str
-    cds_start: int
+    cds_strand: str  # "+" or "-" on the read
+    cds_start: int  # 0-based start (half-open interval with cds_end)
     cds_end: int
-    host_taxid: str
+    host_taxid: str  # NCBI taxid from DIAMOND staxids (majority over hits)
+    reference_taxid: Optional[str]  # CSDB table used after lineage resolution
     cds_len_bp: int
-    cai_vs_host: Optional[float]
-    host_taxid_method: Optional[str] = None
+    cai_vs_host: Optional[float]  # Sharp & Li CAI vs host reference (0–1)
+    host_taxid_method: Optional[str] = None  # e.g. "diamond"
 
 
 @dataclass(frozen=True)

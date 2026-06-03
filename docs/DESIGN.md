@@ -1,31 +1,33 @@
 # PlasmidScreen Design Specification
 
-This document defines expected inputs, outputs, and data contracts for PlasmidScreen screening, codon adaptation analysis, and the offline codon reference build.
+This document defines expected inputs, outputs, and data contracts for engineered DNA screening, DIAMOND-based codon adaptation analysis, and the offline codon reference build.
 
 ## Overview
 
 ```mermaid
 flowchart LR
   subgraph prep [Offline prep - networked]
-    A[Taxids / Kraken taxids] --> B[build_codon_reference]
+    A[Taxids / Kraken taxids / all CSDB] --> B[build_codon_reference]
     B --> C[codon_tables.json]
     B --> D[taxonomy_parents.json]
   end
   subgraph runtime [Runtime - airgapped]
     E[Reads FASTA/FASTQ] --> F[Kraken2]
-    F --> G[kraken.out]
+    F --> G[kraken classifications]
     G --> H[Engineered k-mer scan]
     H --> I[engineered_report.txt]
-    G --> J[Codon adaptation]
-    C --> J
-    J --> K[codon_usage.tsv]
+    E --> J[DIAMOND blastx]
+    J --> K[diamond.tsv]
+    K --> L[Codon CAI vs CSDB]
+    C --> L
+    L --> M[codon_usage.tsv]
   end
 ```
 
 | Phase | Network | Entry point |
 |-------|---------|-------------|
-| Reference build | Required | `build_codon_reference()` / `build-codon-db build` |
-| Screening | Not required | `run_screen()` / `screen` |
+| Reference build | Required | `build_codon_reference()` / `python plasmidScreen.py build` |
+| Full screening | Not required | `run_screen()` / `python plasmidScreen.py screen` |
 | Codon-only | Not required | `analyze_codon_adaptation()` |
 
 ---
@@ -38,7 +40,7 @@ flowchart LR
 |----------|-------------|
 | Formats | `.fa`, `.fasta`, `.fq`, `.fastq` (suffix-based detection) |
 | Encoding | Nucleotides A/C/G/T (case-insensitive; uppercased internally) |
-| Read IDs | Must match Kraken2 output column 2 (first whitespace-delimited token in FASTA header) |
+| Read IDs | Must match Kraken2 column 2 and DIAMOND `qseqid` (first token in FASTA header) |
 
 **Example FASTA**
 
@@ -49,9 +51,9 @@ ATGAAATTTAAATAG
 ATGAAATTTAAATAG
 ```
 
-### 1.2 Kraken2 raw output
+### 1.2 Kraken2 raw output (engineered k-mer scan)
 
-Produced with minimizer data enabled (required for engineered scan and codon analysis):
+Produced with minimizer data enabled (required for the engineered scan):
 
 ```bash
 kraken2 --db <DB> --report-minimizer-data --output <kraken.out> \
@@ -71,7 +73,7 @@ kraken2 --db <DB> --report-minimizer-data --output <kraken.out> \
 
 Space-separated tokens: `TAXID:COUNT`
 
-- Each token assigns `COUNT` consecutive k-mers (default k=35) the given taxonomy.
+- Each token assigns `COUNT` consecutive k-mers (Kraken k=21 minimizers) the given taxonomy.
 - `A:COUNT` marks ambiguous minimizers (handled as taxid `-1` internally).
 - Engineered detection targets taxid **32630** in a sliding window.
 
@@ -81,14 +83,26 @@ Space-separated tokens: `TAXID:COUNT`
 C	read_natural_1	562	100	0:35	562:30
 ```
 
+By default the workflow runs Kraken2 in-process and keeps classifications in memory. Use `--kraken-output-path` with `--debug-write-kraken-out` to persist them, or `--no-run-kraken` to load a saved file.
+
 ### 1.3 Kraken2 database (engineered screen)
 
 | Property | Description |
 |----------|-------------|
-| Path | Directory passed as `kraken_db` / positional argument |
+| Path | Directory passed as `kraken_db` (CLI positional argument) |
 | Usage | Local Kraken2 index; must include engineered taxon minimizers (taxid 32630) |
 
-### 1.4 Codon usage reference (pre-built, airgapped)
+### 1.4 DIAMOND protein database (codon adaptation)
+
+| Property | Description |
+|----------|-------------|
+| Format | DIAMOND database (`.dmnd`), e.g. UniRef with taxonomy |
+| Usage | `diamond blastx` with `--min-orf` on reads; ORF coordinates from `qstart`/`qend`, host from `staxids` |
+| Outfmt 6 columns | `qseqid sseqid qstart qend pident length evalue bitscore staxids sscinames` |
+
+Precomputed TSV can be saved (`--debug-write-diamond-out`) and reloaded (`--no-run-diamond` + `--diamond-output-path`) for codon-only reruns.
+
+### 1.5 Codon usage reference (pre-built, airgapped)
 
 Directory (default: `~/.local/share/PlasmidScreen/codon_usage/`):
 
@@ -124,25 +138,19 @@ Directory (default: `~/.local/share/PlasmidScreen/codon_usage/`):
 }
 ```
 
-### 1.5 Build-time inputs (`build_codon_reference`)
+### 1.6 Build-time inputs (`build_codon_reference`)
 
 | Input | Description |
 |-------|-------------|
-| *(none)* | CLI `build-codon-db build` with no flags uses bundled common taxids |
+| *(none)* | CLI `build` with no taxid flags imports **every** taxid in the CSDB archive |
 | `csdb_archive` | Path to `codonstatsdb_March2022.tar.gz` (default: PlasmidScreen data dir) |
 | `download_csdb` | If true and archive missing, download ~5.2 GB from [CSDB](http://codonstatsdb.unr.edu/) |
-| `taxids` | NCBI taxonomy IDs to import from the CSDB archive |
-| `kraken_output` | Optional; union of all classified taxids from a Kraken file |
+| `taxids` / `taxids_file` | Subset of NCBI taxonomy IDs to import |
+| `kraken_output` | Optional; union of classified taxids from a Kraken file (build helper only) |
 | `include_taxonomy` | If true, download NCBI taxdump and write `taxonomy_parents.json` |
 | `gene_set` | CSDB table: `nuclear` (default), `ribosomal`, `mitochondrial`, or `plastid` |
 
-**Data source:** [Codon Statistics Database](http://codonstatsdb.unr.edu/) (RefSeq representative
-genomes, March 2022 snapshot). Build extracts `data/<taxid>/nuclear_codon_statistics.tsv` per species.
-Lineage resolution maps Kraken taxids to the nearest CSDB entry via NCBI taxonomy.
-
-**Default taxid bundle** merges `plasmidScreen/data/common_codon_taxids.txt` (~150 curated
-hosts) with `default_codon_taxids.txt`. Override with `--taxids`, `--taxids-file`, or
-`--kraken-output`. Prefer strain-level taxids (e.g. `511145` for *E. coli* K-12) when available.
+**Data source:** [Codon Statistics Database](http://codonstatsdb.unr.edu/) (RefSeq representative genomes, March 2022 snapshot). Build extracts `data/<taxid>/nuclear_codon_statistics.tsv` per species. Lineage resolution maps DIAMOND/Kraken taxids to the nearest CSDB entry via NCBI taxonomy.
 
 ---
 
@@ -158,13 +166,17 @@ hosts) with `default_codon_taxids.txt`. Override with `--taxids`, `--taxids-file
 
 Effective k-mers per window: `window_size - 21 + 1` (Kraken k=21 minimizers in window logic).
 
-### 2.2 Codon adaptation
+### 2.2 Codon adaptation (DIAMOND + CSDB)
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `diamond_db` | required | DIAMOND protein database (`.dmnd`) for blastx ORF/host inference |
-| `include_read_ids` | all reads with DIAMOND hits | If set, only these read IDs are scored |
-| `codon_usage_dir` | user data dir | Pre-built reference directory |
+| Parameter | CLI flag | Default | Description |
+|-----------|----------|---------|-------------|
+| `diamond_db` | `--diamond-db` | — | Required when codon enabled and DIAMOND runs |
+| `diamond_threads` | `--diamond-threads` | same as `--threads` | DIAMOND worker threads |
+| `diamond_output_path` | `--diamond-output-path` | — | Save/load DIAMOND outfmt 6 TSV |
+| `run_diamond` | `--run-diamond` / `--no-run-diamond` | true | Run blastx vs load TSV |
+| `codon_usage_dir` | `--codon-usage-dir` | user data dir | Pre-built reference directory |
+| `include_read_ids` | (library) | all DIAMOND hits | Full screen passes Natural read IDs only |
+| `codon_cai_engineered_threshold` | `--codon-cai-threshold` | — | Optional low-CAI engineered flag |
 
 ---
 
@@ -172,7 +184,7 @@ Effective k-mers per window: `window_size - 21 + 1` (Kraken k=21 minimizers in w
 
 ### 3.1 Engineered screening report (TSV-like text)
 
-**Path:** user-provided `output_report_path` (e.g. `report.txt`)
+**Path:** user-provided engineered report path (e.g. `report.txt`)
 
 | Column | Type | Meaning |
 |--------|------|---------|
@@ -193,29 +205,27 @@ Synthetic	read_synthetic_1	engineered_kmer_scan	35	25	200
 
 ### 3.2 Codon usage report (TSV)
 
-**Path:** `--codon-usage-output` or `<report>.codon_usage.tsv`
+**Path:** `--codon-usage-output` (optional)
 
-Only **Natural** reads are included when run via full `screen` workflow.
+Only **Natural** reads are scored when run via full `screen` workflow.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | Read_ID | string | Read identifier |
-| Overall_TaxID | string | Kraken assignment (column 2) |
-| CDS_Strand | `+` / `-` | Strand of longest ORF |
-| CDS_Range | string | `start-end` (0-based half-open on + strand) |
-| CDS_TaxID | string | Dominant taxid over CDS region |
-| Host_TaxID | string | Dominant taxid over flanking regions |
-| Reference_TaxID | string | Taxid whose codon table was used (after lineage resolve) |
-| CDS_Len_bp | int | CDS length in bp |
+| CDS_Strand | `+` / `-` | Strand of selected ORF (from DIAMOND coordinates) |
+| CDS_Range | string | `start-end` (0-based half-open on read) |
+| Host_TaxID | string | Dominant DIAMOND `staxids` taxid for the read |
+| Reference_TaxID | string | CSDB taxid used for CAI after lineage resolution |
+| CDS_Len_bp | int | ORF length in bp |
 | CAI_vs_Host | float or `NA` | Codon Adaptation Index vs host reference (0–1) |
-| Codon_CAI_Threshold | float | Present only when codon-CAI flagging is enabled |
+| Codon_CAI_Threshold | float | Present only when `--codon-cai-threshold` is set |
 | Engineered_By_Codon_CAI | bool or `NA` | Present only when codon-CAI flagging is enabled |
 
 **Example**
 
 ```text
-Read_ID	Overall_TaxID	CDS_Strand	CDS_Range	CDS_TaxID	Host_TaxID	Reference_TaxID	CDS_Len_bp	CAI_vs_Host
-read_natural_1	562	+	0-12	562	562	562	12	0.7234
+Read_ID	CDS_Strand	CDS_Range	Host_TaxID	Reference_TaxID	CDS_Len_bp	CAI_vs_Host
+read_natural_1	+	0-99	562	562	99	0.7234
 ```
 
 ### 3.3 Library return types
@@ -225,10 +235,11 @@ read_natural_1	562	+	0-12	562	562	562	12	0.7234
 | Field | Type | Description |
 |-------|------|-------------|
 | `engineered_scan` | `EngineeredScanResult` | All read labels and counts |
-| `codon_adaptation` | `list[CodonAdaptationResult]` | Natural reads only (if enabled) |
+| `codon_adaptation` | `list[CodonAdaptationResult]` | Natural reads only (if codon enabled) |
 | `per_read` | `list[ReadFlagDetail]` | Per-read method attribution and evidence |
 | `engineered_report_path` | `Path \| None` | Written engineered report |
 | `codon_usage_report_path` | `Path \| None` | Written codon TSV |
+| `diamond_output_path` | `Path \| None` | Saved or loaded DIAMOND TSV path |
 
 #### `CodonAdaptationResult`
 
@@ -236,11 +247,12 @@ read_natural_1	562	+	0-12	562	562	562	12	0.7234
 |-------|------|-------------|
 | `read_id` | str | Read ID |
 | `cds_strand` | str | `+` or `-` |
-| `cds_start`, `cds_end` | int | CDS coordinates (DIAMOND qstart/qend or legacy ORF finder) |
-| `host_taxid` | str | Taxid for CAI from DIAMOND `staxids` (majority/LCA) or Kraken flanks (legacy) |
-| `reference_taxid` | str \| None | Resolved reference taxid |
-| `cds_len_bp` | int | CDS length |
+| `cds_start`, `cds_end` | int | ORF coordinates from merged DIAMOND hits |
+| `host_taxid` | str | Taxid from DIAMOND `staxids` (majority over hits) |
+| `reference_taxid` | str \| None | CSDB table taxid after lineage resolve |
+| `cds_len_bp` | int | ORF length in bp |
 | `cai_vs_host` | float \| None | CAI score |
+| `host_taxid_method` | str \| None | e.g. `"diamond"` |
 
 #### `ReadEngineeringLabel`
 
@@ -282,12 +294,13 @@ Per-read attribution and evidence for engineered calls.
 ### 4.1 Engineered vs Natural
 
 - Each classified read with valid k-mer block data receives **Synthetic** if sliding-window count of taxid `32630` ≥ threshold; otherwise **Natural**.
-- Unclassified reads (`U`) are still listed in the engineered report if present in Kraken output; codon analysis skips them.
+- Unclassified reads (`U`) are still listed in the engineered report if present in Kraken output; codon analysis skips reads without DIAMOND host/ORF assignment.
 
 ### 4.2 Codon analysis gating
 
-- Full pipeline: codon CAI runs **only** for reads labeled **Natural**.
-- If zero Natural reads, codon output is omitted (empty list; no TSV unless explicitly requested elsewhere).
+- Full pipeline: codon CAI runs **only** for reads labeled **Natural** by the k-mer scan.
+- Standalone `analyze_codon_adaptation`: scores all reads with DIAMOND hits unless `include_read_ids` is set.
+- If zero Natural reads, codon output is empty (no TSV unless path set with zero rows).
 
 ### 4.3 Airgapped / reference errors
 
@@ -300,9 +313,11 @@ No network access occurs during `analyze_codon_adaptation` or `run_screen` codon
 
 ### 4.4 CAI computation
 
-- Reference weights: Sharp & Li adaptiveness (per-codon weight / max within synonymous family).
-- CAI = geometric mean of codon weights across in-frame codons in longest ORF (6-frame search).
-- Longest ORF: longest segment between stop codons per frame; stops excluded from CDS sequence.
+- **ORF selection:** DIAMOND blastx with `--min-orf`; merge overlapping hit intervals per read; choose longest merged interval; slice read sequence for CAI.
+- **Host taxid:** majority of `staxids` across hits for the read.
+- **Reference:** walk NCBI parents in `taxonomy_parents.json` until a `codon_tables.json` entry exists.
+- **Weights:** Sharp & Li adaptiveness (per-codon weight / max within synonymous family).
+- **CAI:** geometric mean of codon weights across in-frame triplets in the ORF slice.
 
 ---
 
@@ -310,13 +325,13 @@ No network access occurs during `analyze_codon_adaptation` or `run_screen` codon
 
 | Command | Purpose |
 |---------|---------|
-| `plasmidScreen.py screen` | Kraken (optional) + engineered scan + codon usage |
-| `plasmidScreen.py build-codon-db build` | Offline reference build |
+| `plasmidScreen.py screen` | Kraken (optional) + engineered scan + codon usage (DIAMOND) |
+| `plasmidScreen.py build` | Offline codon reference build from CSDB |
 
 ### `screen` arguments
 
 ```text
-screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_RAW_OUTPUT [KRAKEN_DB_PATH]
+screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_DB_PATH
   --window_size INT
   --threshold INT
   --codon-usage-output PATH
@@ -325,26 +340,32 @@ screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_RAW_OUTPUT [KRAKEN_DB_PATH]
   --diamond-db PATH
   --diamond-threads INT
   --diamond-args TEXT
+  --diamond-output-path PATH
+  --debug-write-diamond-out
+  --run-diamond / --no-run-diamond
   --skip-codon-usage
+  --kraken-output-path PATH
   --debug-write-kraken-out
   --debug-write-kraken-report
+  --run-kraken / --no-run-kraken
   --threads INT
 ```
 
-### `build-codon-db build` arguments
+### `build` arguments
 
 ```text
-build-codon-db build
+build
   --output-dir PATH
   --taxids "9606,511145"
   --taxids-file PATH
-  --kraken-output PATH
   --skip-taxonomy
   --taxdump-dir PATH
   --csdb-archive PATH
   --no-download-csdb
   --gene-set nuclear|ribosomal|mitochondrial|plastid
 ```
+
+Note: `--kraken-output` for taxid subset during build is available via the library `build_codon_database(kraken_output=...)` API.
 
 ---
 
@@ -353,16 +374,18 @@ build-codon-db build
 ```python
 from plasmidScreen import (
     build_codon_reference,       # -> BuildCodonReferenceResult
+    build_codon_database,        # convenience wrapper for build CLI
     analyze_codon_adaptation,    # -> tuple[list[CodonAdaptationResult], Path | None]
     run_screen,                  # -> ScreenResult
     write_codon_adaptation_tsv,  # -> tuple[str, list[CodonAdaptationResult]]
+    taxids_from_kraken_output,   # taxids for reference subset builds
     CodonUsageStore,
-    taxids_from_kraken_output,
+    default_codon_usage_dir,
 )
 ```
 
 Recommended airgapped workflow:
 
-1. Networked: `build_codon_reference(dir, taxids=...)` or from Kraken taxid list.
-2. Copy `dir` to airgapped environment.
-3. Run DIAMOND blastx (or reuse saved TSV) → `analyze_codon_adaptation(reads, diamond_db=..., codon_usage_dir=dir)` or full `run_screen(..., diamond_db=...)`.
+1. Networked: `build_codon_reference(dir)` or subset taxids / Kraken-derived taxids.
+2. Copy `dir` (and DIAMOND DB if needed) to the airgapped environment.
+3. Run `run_screen(reads, kraken_db, diamond_db=..., codon_usage_dir=dir)` or codon-only `analyze_codon_adaptation(reads, diamond_db=..., codon_usage_dir=dir)`.

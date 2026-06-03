@@ -301,7 +301,12 @@ def infer_orfs_and_host_taxids(
         merge_gap_bp: int = 30,
         min_orf_len_bp: int = 30,
 ) -> tuple[dict[str, list[OrfInterval]], dict[str, Optional[str]]]:
-    """DIAMOND TSV -> ORF intervals (qstart/qend) and per-read host taxid (staxids)."""
+    """
+    Parse DIAMOND outfmt 6 into per-read ORF intervals and host taxids.
+
+    ORFs are merged hit intervals on each read; host taxid is the majority
+    ``staxids`` value across all hits for that read.
+    """
     hits_by_read = parse_diamond_tsv(diamond_lines)
     orfs_by_read: dict[str, list[OrfInterval]] = {}
     host_by_read: dict[str, Optional[str]] = {}

@@ -136,6 +136,13 @@ def write_engineered_report_tsv(
 
 
 class Workflow:
+    """
+    End-to-end screening: Kraken2 engineered k-mer scan and optional DIAMOND codon CAI.
+
+    Kraken output is held in memory by default. Codon analysis uses DIAMOND blastx for
+    ORF intervals and host taxids, restricted to reads labeled Natural by the k-mer scan.
+    """
+
     fasta_file: Path
     report_output_path: Path | None
     write_engineered_report: bool

@@ -33,8 +33,7 @@ def test_store_load_and_resolve_lineage(codon_store: CodonUsageStore) -> None:
     assert codon_store.has_codon_table("562")
     ref = codon_store.resolve_reference_taxid("562")
     assert ref == "562"
-    weights, ref2 = codon_store.get_cai_weights_for_host("562")
-    assert ref2 == "562"
+    weights = codon_store.get_cai_weights_for_host("562")
     assert weights is not None
     assert "ATG" in weights
 

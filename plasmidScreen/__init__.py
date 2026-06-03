@@ -15,7 +15,7 @@ Library usage (airgapped screening requires a pre-built codon reference):
         codon_usage_dir="codon_usage/",
     )
     for r in results:
-        print(r.read_id, r.cai_vs_host)
+        print(r.read_id, r.host_taxid, r.cai_vs_host)
 """
 from plasmidScreen.api import (
     analyze_codon_adaptation,
@@ -23,6 +23,7 @@ from plasmidScreen.api import (
     build_codon_reference,
     default_codon_usage_dir,
     run_screen,
+    taxids_from_kraken_output,
     write_codon_adaptation_tsv,
 )
 from plasmidScreen.lib.codon_usage_db import CodonUsageStore
@@ -41,6 +42,7 @@ __all__ = [
     "build_codon_reference",
     "default_codon_usage_dir",
     "run_screen",
+    "taxids_from_kraken_output",
     "write_codon_adaptation_tsv",
     "BuildCodonReferenceResult",
     "CodonAdaptationResult",

@@ -4,15 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from plasmidScreen.lib.codon_usage_build import build_codon_reference, default_reference_taxids
-
-
-def test_default_reference_taxids_non_empty() -> None:
-    taxids = default_reference_taxids()
-    assert len(taxids) >= 50
-    assert len(taxids) == len(set(taxids))
-    assert "9606" in taxids
-    assert "511145" in taxids
+from plasmidScreen.lib.codon_usage_build import build_codon_reference
 
 
 @patch("plasmidScreen.lib.codon_usage_build.import_all_csdb_from_archive")

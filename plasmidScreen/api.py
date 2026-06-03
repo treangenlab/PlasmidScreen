@@ -1,7 +1,8 @@
 """
 PlasmidScreen public library API.
 
-All screening assumes codon reference data was built offline (airgapped-safe).
+Screening and codon scoring are airgapped-safe once ``codon_tables.json`` has been
+built offline with :func:`build_codon_reference` or :func:`build_codon_database`.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from plasmidScreen.lib.codon_usage_sources import all_csdb_taxids
 from plasmidScreen.lib.codon_usage_db import (
     CodonUsageStore,
     default_codon_usage_dir,
+    taxids_from_kraken_output,
 )
 from plasmidScreen.lib.models import (
     BuildCodonReferenceResult,
@@ -33,6 +35,7 @@ __all__ = [
     "all_csdb_taxids",
     "default_codon_usage_dir",
     "run_screen",
+    "taxids_from_kraken_output",
     "write_codon_adaptation_tsv",
     "BuildCodonReferenceResult",
     "CodonAdaptationResult",
@@ -65,39 +68,49 @@ def run_screen(
     run_diamond: bool = True,
 ) -> ScreenResult:
     """
-    Run engineered k-mer screening and optional codon adaptation analysis.
+    Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
+
+    Engineered detection uses Kraken2 minimizer blocks (taxid 32630) in a sliding window.
+    Codon CAI runs on reads labeled **Natural** only, using DIAMOND blastx for ORF coordinates
+    and host taxids, then pre-built codon usage tables for CAI.
 
     Parameters
     ----------
-    fasta_file:str
-        path of fasta file for reading and engineering detection
-    kraken_db: str
-
+    fasta_file
+        Input FASTA/FASTQ path.
+    kraken_db
+        Kraken2 database directory (required when ``run_kraken=True``).
     engineered_report_path
-        When set, writes the engineered k-mer scan TSV to this path.
+        If set, writes the engineered k-mer scan TSV to this path.
     kraken_output_path
-    threads
-    window_size
-    engineered_kmer_threshold
-    codon_usage_dir
-        Pre-built reference directory (codon_tables.json). Required when
-        run_codon_usage is True.
+        Save or load raw Kraken2 classifications (required when ``run_kraken=False`` or
+        when ``debug_write_kraken_output=True``).
     run_kraken
-        If False, kraken_output_path must be provided (airgapped Kraken step done).
-    debug_write_diamond_output
-    debug_write_kraken_output
-    debug_write_kraken_report
+        Run Kraken2 in-process; if False, ``kraken_output_path`` must point to existing output.
+    codon_usage_dir
+        Directory with ``codon_tables.json``. Required when ``run_codon_usage=True``.
     run_codon_usage
+        If False, skip DIAMOND and CAI (engineered scan only).
     codon_usage_output_path
+        Optional path for codon adaptation TSV (Natural reads only).
     codon_cai_engineered_threshold
+        If set, annotate reads with low CAI as engineered-by-codon in output TSV and
+        :attr:`~plasmidScreen.lib.models.ReadFlagDetail.engineered_by_codon_cai`.
     diamond_db
-    diamond_threads
-    diamond_extra_args
-    run_diamond
-
+        DIAMOND protein database (``.dmnd``). Required when ``run_codon_usage=True`` and
+        ``run_diamond=True``.
     diamond_output_path
-        Path to save (``debug_write_diamond_output``) or load (``run_diamond=False``)
-        DIAMOND outfmt 6 TSV.
+        Save or load DIAMOND outfmt 6 TSV (for ``debug_write_diamond_output`` or
+        ``run_diamond=False``).
+    debug_write_diamond_output
+        Persist DIAMOND alignments to ``diamond_output_path``.
+    run_diamond
+        Run DIAMOND blastx; if False, load precomputed TSV from ``diamond_output_path``.
+
+    Returns
+    -------
+    ScreenResult
+        Engineered labels, optional codon results, per-read flags, and output paths.
     """
     if run_codon_usage:
         if run_diamond and diamond_db is None:
@@ -139,9 +152,11 @@ def run_screen(
 
 
 def build_codon_database(
+    *,
     output_dir: str | Path | None = None,
     taxids: Iterable[str | int] | None = None,
     taxids_file: str | Path | None = None,
+    kraken_output: str | Path | None = None,
     include_taxonomy: bool = True,
     taxdump_dir: str | Path | None = None,
     csdb_archive: str | Path | None = None,
@@ -149,13 +164,14 @@ def build_codon_database(
     gene_set: GeneSet = "nuclear",
 ) -> BuildCodonReferenceResult:
     """
-    Convenience wrapper to build the codon usage reference database. Requires internet connection
-    to fetch resources from Codon Statistics Database Krishnamurthy et al. 2022, Molecular Biology and Evolution.
+    Build the codon usage reference for airgapped CAI scoring (network required).
 
-    This mirrors the build CLI behavior:
-    - union of explicit taxids + taxids_file + kraken_output taxids
-    - when nothing is provided, imports every taxid in the CSDB archive
-    - writes codon_tables.json (+ optional taxonomy_parents.json) under output_dir
+    Mirrors ``python plasmidScreen.py build``: unions explicit taxids from ``taxids``,
+    ``taxids_file``, and classified taxids from ``kraken_output``. When no taxids are
+    given, imports **every** taxid in the CSDB archive for ``gene_set``.
+
+    Writes ``codon_tables.json`` and optionally ``taxonomy_parents.json`` under
+    ``output_dir`` (default: PlasmidScreen user data ``codon_usage/``).
     """
     data_dir = Path(output_dir) if output_dir else default_codon_usage_dir()
 
@@ -169,6 +185,9 @@ def build_codon_database(
             line = line.strip().split("#")[0].strip()
             if line:
                 resolved.add(line)
+
+    if kraken_output:
+        resolved.update(taxids_from_kraken_output(Path(kraken_output)))
 
     taxid_list = sorted(resolved) if resolved else None
 

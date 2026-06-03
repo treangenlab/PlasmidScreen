@@ -15,9 +15,13 @@ from plasmidScreen.lib.types import GeneSet
 
 FORMAT = "%(message)s"
 logging.basicConfig(level=logging.INFO, format=FORMAT, datefmt="[%X]", handlers=[RichHandler()])
-app = typer.Typer(pretty_exceptions_show_locals=False,
-                  help="Welcome to PlasmidScreen. A k-mer based tool to detect"
-                       " engineered DNA.")
+app = typer.Typer(
+    pretty_exceptions_show_locals=False,
+    help=(
+        "PlasmidScreen: Kraken2 engineered k-mer screening and optional "
+        "DIAMOND + codon adaptation (CAI) analysis."
+    ),
+)
 
 DEFAULT_DB_PATH = get_default_db_path("PlasmidScreen")
 DEFAULT_CODON_USAGE_DIR = str(default_codon_usage_dir())

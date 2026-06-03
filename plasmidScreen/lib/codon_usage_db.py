@@ -161,11 +161,7 @@ class CodonUsageStore:
         return self._parents.get(str(taxid))
 
     def resolve_reference_taxid(self, taxid: str | int) -> Optional[str]:
-        """
-        This method finds a taxonomy going up the tree to find a taxa that resolves in the tree
-        that we have a codon table for. This is meant to handle cases where taxa is too specific or edge cases.
-
-        """
+        """Nearest ancestor taxid (including self) with an entry in ``codon_tables.json``."""
         if str(taxid) in ("0", ""):
             return None
         current = str(taxid)
@@ -181,9 +177,7 @@ class CodonUsageStore:
         return None
 
     def get_cai_weights_for_host(self, host_taxid: str | int) -> Optional[dict[str, float]]:
-        """
-        This function weights the codons depending on their frequencies from the JSON.
-        """
+        """Sharp & Li CAI weights for ``host_taxid``, walking NCBI parents until a table exists."""
         ref = self.resolve_reference_taxid(host_taxid)
         if ref is None:
             return None
@@ -221,3 +215,4 @@ class CodonUsageStore:
         self._parents = parse_taxonomy_nodes(nodes_dmp)
         self._dirty = True
         return len(self._parents)
+

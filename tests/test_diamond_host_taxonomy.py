@@ -4,7 +4,6 @@ from plasmidScreen.lib.diamond_host_taxonomy import (
     DIAMOND_OUTFMT,
     hits_to_orf_intervals,
     infer_orfs_and_host_taxids,
-    lca_taxid,
     parse_diamond_tsv,
     resolve_diamond_lines,
     run_diamond_blastx,
@@ -135,40 +134,23 @@ def test_parse_diamond_tsv_skips_malformed_rows() -> None:
     assert len(hits["read1"]) == 1
 
 
-def test_lca_taxid() -> None:
-    parents = {"562": "561", "561": "543", "543": "543"}
-    assert lca_taxid(["562", "562"], parents) == "562"
-    assert lca_taxid(["562", "561"], parents) == "561"
-
-
 def test_infer_orfs_and_host_taxids_majority_host() -> None:
-    parents = {
-        "562": "561",
-        "561": "543",
-        "543": "543",
-        "9606": "9605",
-        "9605": "314295",
-        "314295": "314295",
-    }
     lines = [
         _diamond_line("read1", "a", "1", "120", "99", "120", "1e-50", "200", "562", ""),
         _diamond_line("read1", "b", "1", "100", "98", "100", "1e-40", "180", "562", ""),
         _diamond_line("read1", "c", "300", "360", "90", "50", "1e-10", "50", "9606", ""),
     ]
-    orfs_by_read, host_by_read = infer_orfs_and_host_taxids(
-        lines, taxonomy_parents=parents
-    )
+    orfs_by_read, host_by_read = infer_orfs_and_host_taxids(lines)
     assert host_by_read["read1"] == "562"
     assert len(orfs_by_read["read1"]) >= 1
 
 
 def test_infer_orfs_and_host_taxids() -> None:
-    parents = {"562": "561", "561": "543", "543": "543"}
     lines = [
         _diamond_line("read1", "a", "1", "99", "99", "33", "1e-5", "200", "562", ""),
     ]
     orfs_by_read, host_by_read = infer_orfs_and_host_taxids(
-        lines, taxonomy_parents=parents, min_orf_len_bp=30
+        lines, min_orf_len_bp=30
     )
     assert len(orfs_by_read["read1"]) == 1
     assert orfs_by_read["read1"][0].length_bp == 99
