@@ -158,7 +158,6 @@ def build_codon_database(
     output_dir: str | Path | None = None,
     taxids: Iterable[str | int] | None = None,
     taxids_file: str | Path | None = None,
-    kraken_output: str | Path | None = None,
     csdb_archive: str | Path | None = None,
     download_csdb: bool = True,
     gene_set: GeneSet = "nuclear",

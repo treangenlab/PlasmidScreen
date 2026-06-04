@@ -64,21 +64,6 @@ def _save_json(path: Path, data: dict[str, Any]) -> None:
         f.write("\n")
 
 
-def parse_taxonomy_nodes(nodes_dmp: Path) -> dict[str, str]:
-    """Parse NCBI nodes.dmp into taxid -> parent_taxid."""
-    parents: dict[str, str] = {}
-    with nodes_dmp.open() as f:
-        for line in f:
-            parts = [p.strip() for p in line.split("|")]
-            if len(parts) < 2:
-                continue
-            taxid, parent = parts[0], parts[1]
-            if taxid == parent:
-                continue
-            parents[taxid] = parent
-    return parents
-
-
 class CodonUsageStore:
     """Read-only JSON codon usage store for runtime (airgapped).
 
@@ -208,11 +193,3 @@ class CodonUsageStore:
             entry["scientific_name"] = scientific_name
         self._tables[str(taxid)] = entry
         self._dirty = True
-
-    def load_taxonomy_from_nodes(self, nodes_dmp: Path) -> int:
-        if not self._writable:
-            raise RuntimeError("Cannot modify a read-only CodonUsageStore")
-        self._parents = parse_taxonomy_nodes(nodes_dmp)
-        self._dirty = True
-        return len(self._parents)
-

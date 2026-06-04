@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import logging
-import tarfile
-import urllib.request
 from pathlib import Path
 from typing import Iterable
 
@@ -20,28 +18,6 @@ from plasmidScreen.lib.codon_usage_sources import (
 )
 from plasmidScreen.lib.models import BuildCodonReferenceResult
 from plasmidScreen.lib.types import GeneSet
-
-NCBI_TAXDUMP_URL = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz"
-
-
-def download_ncbi_taxdump(dest_dir: Path) -> Path:
-    """Download and extract nodes.dmp from NCBI taxdump."""
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    archive = dest_dir / "taxdump.tar.gz"
-    if not archive.exists():
-        logging.info("Downloading NCBI taxdump from %s", NCBI_TAXDUMP_URL)
-        urllib.request.urlretrieve(NCBI_TAXDUMP_URL, archive)
-
-    nodes_path = dest_dir / "nodes.dmp"
-    if not nodes_path.exists():
-        logging.info("Extracting nodes.dmp from taxdump archive")
-        with tarfile.open(archive, "r:gz") as tar:
-            try:
-                tar.extract("nodes.dmp", path=dest_dir, filter="data")
-            except TypeError:
-                tar.extract("nodes.dmp", path=dest_dir)
-
-    return nodes_path
 
 
 def build_codon_reference(
@@ -89,7 +65,6 @@ def build_codon_reference(
     failed: list[str] = []
 
     store = CodonUsageStore.writable(data_dir)
-
 
     if import_all:
         added, skipped = import_all_csdb_from_archive(

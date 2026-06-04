@@ -10,7 +10,6 @@ from plasmidScreen.lib.codon_usage_db import (
     CodonUsageStore,
     cai_weights_from_frequencies,
     parse_taxonomy_nodes,
-    taxids_from_kraken_output,
 )
 from plasmidScreen.lib.exceptions import CodonReferenceNotFoundError, MissingCodonReferenceError
 
@@ -59,16 +58,3 @@ def test_writable_store_roundtrip(tmp_path: Path, uniform_frequencies: dict[str,
 
     loaded = CodonUsageStore.load(data_dir)
     assert loaded.get_frequencies("123") == uniform_frequencies
-
-
-def test_taxids_from_kraken_output(fixtures_kraken_out: Path) -> None:
-    taxids = taxids_from_kraken_output(fixtures_kraken_out)
-    assert taxids == {"562"}
-
-
-def test_parse_taxonomy_nodes(tmp_path: Path) -> None:
-    nodes = tmp_path / "nodes.dmp"
-    nodes.write_text("562|561|species|\n561|543|genus|\n")
-    parents = parse_taxonomy_nodes(nodes)
-    assert parents["562"] == "561"
-    assert parents["561"] == "543"
