@@ -2,7 +2,7 @@
 
 ### Description
 
-PlasmidScreen detects engineered DNA in sequencing reads using a **Kraken2 minimizer scan** (taxid 32630 in sliding windows). Optional **codon adaptation index (CAI)** scoring uses **DIAMOND blastx** for ORF coordinates and host taxonomy, compared against **pre-built** host codon usage tables from the [Codon Statistics Database](http://codonstatsdb.unr.edu/).
+PlasmidScreen detects engineered DNA in sequencing reads using a **Kraken2 minimizer/kmer scan** (taxid 32630 in sliding windows). Optional **codon adaptation index (CAI)** scoring uses **DIAMOND blastx** for ORF coordinates and host taxonomy, compared against host codon usage tables from the [Codon Statistics Database](http://codonstatsdb.unr.edu/).
 
 **Design specification (inputs/outputs):** [docs/DESIGN.md](docs/DESIGN.md)
 
@@ -10,7 +10,7 @@ PlasmidScreen detects engineered DNA in sequencing reads using a **Kraken2 minim
 
 | Step | Tool | Purpose |
 |------|------|---------|
-| 1 (offline) | CSDB build | `codon_tables.json` + optional `taxonomy_parents.json` |
+| 1 | CSDB build | `codon_tables.json` + optional `taxonomy_parents.json` |
 | 2 | Kraken2 | Engineered k-mer labels (Natural / Synthetic) |
 | 3 | DIAMOND blastx | ORF intervals (`qstart`/`qend`) and host taxid (`staxids`) |
 | 4 | CAI | Codon adaptation vs host reference (Natural reads only in full screen) |
@@ -18,14 +18,13 @@ PlasmidScreen detects engineered DNA in sequencing reads using a **Kraken2 minim
 
 ### Overall engineered decision (`run_screen` / `ScreenResult`)
 
-Each read in `screen_result.per_read` gets a single **`engineered_overall`** flag and **`overall_label`** (`Natural` or `Synthetic`) from the thresholds you pass to `run_screen`:
+Each read in `screen_result.per_read` gets a single **`engineered_overall`** flag and **`overall_label`** (`Natural` or `Synthetic`) from the thresholds you pass to `run_screen` which can be a result from the two components K-mer scan, and Codon CAI which each are optionally ran. If either are found to contain engineering, `ScreenResult` object will report engineering.
 
 | Signal | Parameter | Counts toward overall engineered when |
 |--------|-----------|----------------------------------------|
 | K-mer scan | `--threshold`, `--window_size` | Engineered minimizers (taxid 32630) in a window ≥ threshold → k-mer **Synthetic** |
 | Codon CAI | `--codon-cai-threshold` (optional) | CAI &lt; threshold on a scored Natural read (requires codon step) |
 
-**Rule:** `engineered_overall = engineered_by_kmer_scan OR engineered_by_codon_cai`.
 
 - Without `--codon-cai-threshold`, overall matches the k-mer scan only (`engineered_scan.synthetic_count` == `overall_synthetic_count`).
 - With `--codon-cai-threshold`, a read can be k-mer **Natural** but overall **Synthetic** if CAI is low.
