@@ -38,10 +38,10 @@ from plasmidScreen.src.analyze_codon_usage import (
 
 @jit(nopython=True)
 def fast_window_logic(
-    tids,
-    counts,
-    window_size,
-    threshold,
+        tids,
+        counts,
+        window_size,
+        threshold,
 ):
     target_tid = 32630
     max_kmers = window_size - 21 + 1
@@ -94,11 +94,11 @@ def fast_window_logic(
 
 
 def engineered_scan_to_tsv_lines(
-    labels: list[ReadEngineeringLabel],
-    *,
-    threshold: int,
-    window_size: int,
-    kmer_max_by_read: dict[str, int] | None = None,
+        labels: list[ReadEngineeringLabel],
+        *,
+        threshold: int,
+        window_size: int,
+        kmer_max_by_read: dict[str, int] | None = None,
 ) -> list[str]:
     """Format engineered k-mer scan labels as TSV lines (header + rows)."""
     header = (
@@ -117,12 +117,12 @@ def engineered_scan_to_tsv_lines(
 
 
 def write_engineered_report_tsv(
-    output_path: str | Path,
-    labels: list[ReadEngineeringLabel],
-    *,
-    threshold: int,
-    window_size: int,
-    kmer_max_by_read: dict[str, int] | None = None,
+        output_path: str | Path,
+        labels: list[ReadEngineeringLabel],
+        *,
+        threshold: int,
+        window_size: int,
+        kmer_max_by_read: dict[str, int] | None = None,
 ) -> str:
     """Write engineered k-mer scan report TSV; returns output path."""
     out = Path(output_path)
@@ -144,54 +144,29 @@ class Workflow:
     Kraken output is held in memory by default. Codon analysis uses DIAMOND blastx for
     ORF intervals and host taxids, restricted to reads labeled Natural by the k-mer scan.
     """
-
-    fasta_file: Path
-    report_output_path: Path | None
-    kraken_db: Path
-    kraken_output_path: Path | None
-    debug_write_kraken_output: bool
-    debug_write_kraken_report: bool
-    _kraken_lines: list[str] | None
-    _kraken_data: dict[str, tuple[str, str, int, str]] | None
-    threshold: int
-    window_size: int
-    max_threads: int
-    codon_usage_output_path: Path | None
-    codon_usage_dir: Path
-    run_kraken_enabled: bool
-    run_codon_usage: bool
-    codon_cai_engineered_threshold: float | None
-    diamond_db: Path | None
-    diamond_threads: int
-    diamond_extra_args: list[str] | None
-    diamond_output_path: Path | None
-    debug_write_diamond_output: bool
-    run_diamond_enabled: bool
-    _diamond_output_saved: Path | None
-
     def __init__(
-        self,
-        fasta_file: str | Path,
-        output_report_path: str | Path | None,
-        kraken_db: str | Path,
-        threads: int,
-        kraken_raw_output: str | Path | None,
-        *,
-        window_size: int = 200,
-        engineered_kmer_threshold: int = 25,
-        codon_usage_output_path: str | Path | None = None,
-        codon_usage_dir: str | Path | None = None,
-        run_kraken: bool = True,
-        debug_write_kraken_output: bool = False,
-        debug_write_kraken_report: bool = False,
-        run_codon_usage: bool = True,
-        codon_cai_engineered_threshold: float | None = None,
-        diamond_db: str | Path | None = None,
-        diamond_threads: int = 4,
-        diamond_extra_args: list[str] | None = None,
-        diamond_output_path: str | Path | None = None,
-        debug_write_diamond_output: bool = False,
-        run_diamond: bool = True,
+            self,
+            fasta_file: str | Path,
+            output_report_path: str | Path | None,
+            kraken_db: str | Path,
+            threads: int,
+            kraken_raw_output: str | Path | None,
+            *,
+            window_size: int = 200,
+            engineered_kmer_threshold: int = 25,
+            codon_usage_output_path: str | Path | None = None,
+            codon_usage_dir: str | Path | None = None,
+            run_kraken: bool = True,
+            debug_write_kraken_output: bool = False,
+            debug_write_kraken_report: bool = False,
+            run_codon_usage: bool = True,
+            codon_cai_engineered_threshold: float | None = None,
+            diamond_db: str | Path | None = None,
+            diamond_threads: int = 4,
+            diamond_extra_args: list[str] | None = None,
+            diamond_output_path: str | Path | None = None,
+            debug_write_diamond_output: bool = False,
+            run_diamond: bool = True,
     ) -> None:
         self.fasta_file = Path(fasta_file)
         self.report_output_path = (
@@ -280,7 +255,7 @@ class Workflow:
 
     @staticmethod
     def parse_and_run(
-        kmer_pos_info: str, window_size: int, threshold: int
+            kmer_pos_info: str, window_size: int, threshold: int
     ) -> tuple[bool, int]:
         raw_data = kmer_pos_info.replace("|:|", "").split()
         if not raw_data:
@@ -317,10 +292,10 @@ class Workflow:
 
     @staticmethod
     def _fast_window_logic_python(
-        tids: NDArray[np.int64],
-        counts: NDArray[np.int64],
-        window_size: int,
-        threshold: int,
+            tids: NDArray[np.int64],
+            counts: NDArray[np.int64],
+            window_size: int,
+            threshold: int,
     ) -> tuple[bool, int]:
         """Pure-Python fallback when Numba cannot compile/unbox inputs."""
         target_tid = 32630
@@ -394,18 +369,18 @@ class Workflow:
                 label = "Natural"
             result.labels.append(ReadEngineeringLabel(read_id=read_id, label=label))
 
-#        if self.write_engineered_report:
-#            if self.report_output_path is None:
-#                raise ValueError(
-#                    "report_output_path is required when write_engineered_report=True."
-#                )
-#            write_engineered_report_tsv(
-#                self.report_output_path,
-#                result.labels,
-#                threshold=self.threshold,
-#                window_size=self.window_size,
-#                kmer_max_by_read=kmer_max_by_read,
-#            )
+        #        if self.write_engineered_report:
+        #            if self.report_output_path is None:
+        #                raise ValueError(
+        #                    "report_output_path is required when write_engineered_report=True."
+        #                )
+        #            write_engineered_report_tsv(
+        #                self.report_output_path,
+        #                result.labels,
+        #                threshold=self.threshold,
+        #                window_size=self.window_size,
+        #                kmer_max_by_read=kmer_max_by_read,
+        #            )
 
         logging.info(
             "Engineered k-mer scan complete: %s/%s synthetic reads.",
@@ -446,22 +421,6 @@ class Workflow:
         self._diamond_output_saved = diamond_path
         return results
 
-#    per_read.append(
-#        ReadFlagDetail(
-#            read_id=lbl.read_id,
-#            kmer_label=lbl.label,
-#            engineered_by_kmer_scan=engineered_by_kmer,
-#            engineered_overall=engineered_overall,
-#            overall_label=overall_label,
-#            engineered_kmer_max_in_window=kmer_max_by_read.get(lbl.read_id),
-#            engineered_kmer_threshold=self.threshold,
-#            engineered_kmer_window_size=self.window_size,
-#            cai_vs_host=cai,
-#            engineered_by_codon_cai=engineered_by_codon,
-#            codon_cai_threshold=self.codon_cai_engineered_threshold,
-#        )
-#    )
-
     def write_screen_result(self, per_read: List[report_output_path]) -> None:
         header = (
             "Label\tRead_ID\tMethods"
@@ -472,16 +431,14 @@ class Workflow:
                     line = "Engineered\t"
                 else:
                     line = "Natural\t"
-                line+=read.read_id+"\t"
+                line += read.read_id + "\t"
                 if read.engineered_by_kmer_scan:
-                    line+="engineered_kmers"
+                    line += "engineered_kmers"
                 elif read.engineered_by_codon:
-                    line+="codon_optimized"
+                    line += "codon_optimized"
                 else:
-                    line+="NA"
-                write_obj.write(line+"\n")
-
-
+                    line += "NA"
+                write_obj.write(line + "\n")
 
     def run(self) -> ScreenResult:
         if self.run_kraken_enabled:
