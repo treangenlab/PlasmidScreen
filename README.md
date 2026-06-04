@@ -2,7 +2,7 @@
 
 ### Description
 
-PlasmidScreen detects engineered DNA in sequencing reads using a **Kraken2 minimizer scan** (taxid 32630 in sliding windows). Optional **codon adaptation index (CAI)** scoring uses **DIAMOND blastx** for ORF coordinates and host taxonomy, compared against **pre-built** host codon usage tables from the [Codon Statistics Database](http://codonstatsdb.unr.edu/) (airgapped-safe at runtime; no network during screening).
+PlasmidScreen detects engineered DNA in sequencing reads using a **Kraken2 minimizer scan** (taxid 32630 in sliding windows). Optional **codon adaptation index (CAI)** scoring uses **DIAMOND blastx** for ORF coordinates and host taxonomy, compared against **pre-built** host codon usage tables from the [Codon Statistics Database](http://codonstatsdb.unr.edu/).
 
 **Design specification (inputs/outputs):** [docs/DESIGN.md](docs/DESIGN.md)
 
@@ -43,23 +43,13 @@ from plasmidScreen import (
     taxids_from_kraken_output,
 )
 
-# Step 1 — networked machine: build reference JSON from Codon Statistics Database
+# Step 1 — build reference JSON from Codon Statistics Database
 build_codon_reference(
     "codon_usage/",
     csdb_archive="/path/to/codonstatsdb_March2022.tar.gz",  # optional; auto-download if omitted
 )
 
-# Step 2 — airgapped: codon-only analysis (DIAMOND + CSDB reference)
-results, diamond_path = analyze_codon_adaptation(
-    "reads.fa",
-    diamond_db="/path/to/protein.dmnd",
-    codon_usage_dir="codon_usage/",
-    include_read_ids={"read1", "read2"},  # optional read filter
-)
-for row in results:
-    print(row.read_id, row.host_taxid, row.reference_taxid, row.cai_vs_host)
-
-# Full pipeline: Kraken engineered scan + codon CAI on Natural reads
+# Full pipeline: Kraken engineered scan + codon optimization detection on Natural reads
 screen_result = run_screen(
     "reads.fa",
     kraken_db="/path/to/kraken/db",
@@ -102,7 +92,7 @@ python plasmidScreen.py build --taxids-file hosts.txt
 The archive is cached under `~/.local/share/PlasmidScreen/` unless `--csdb-archive` is set.
 Output: `codon_usage/codon_tables.json` and optionally `taxonomy_parents.json`.
 
-### CLI — screen (airgapped after reference build)
+### CLI — screen
 
 ```bash
 python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db \
