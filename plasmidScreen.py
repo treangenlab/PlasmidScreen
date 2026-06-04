@@ -55,12 +55,6 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
                                                           help="DIAMOND database (.dmnd) used to infer "
                                                                "ORFs/host taxid for codon CAI. Required when "
                                                                "codon usage is enabled.")] = None,
-           diamond_threads: Annotated[int, typer.Option("--diamond-threads",
-                                                        help="Threads for DIAMOND (defaults to "
-                                                             "--threads if not set).")] = 0,
-           diamond_extra_args: Annotated[str | None, typer.Option("--diamond-args",
-                                                                  help="Extra DIAMOND args passed verbatim "
-                                                                       "(comma-separated).")] = None,
            diamond_output_path: Annotated[str | None, typer.Option("--diamond-output-path",
                                                                    help="Save/load DIAMOND outfmt 6 TSV. "
                                                                         "Required with --debug-write-diamond-out "
@@ -86,10 +80,6 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
            kraken_db_path: Annotated[str, typer.Argument(help="Kraken2 database path")] = DEFAULT_DB_PATH,
            threads: Annotated[int, typer.Option("--threads", help="Available threads to use.")] = 4,
            ) -> None:
-    diamond_thread_count = threads if diamond_threads <= 0 else diamond_threads
-    diamond_args_list = None
-    if diamond_extra_args:
-        diamond_args_list = [a.strip() for a in diamond_extra_args.split(",") if a.strip()]
     if not run_kraken and not kraken_output_path:
         raise typer.BadParameter("--kraken-output-path is required when --no-run-kraken is set")
     if debug_write_kraken_out and not kraken_output_path:
@@ -123,8 +113,6 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
         debug_write_kraken_report=debug_write_kraken_report,
         run_kraken=run_kraken,
         diamond_db=diamond_db,
-        diamond_threads=diamond_thread_count,
-        diamond_extra_args=diamond_args_list,
         diamond_output_path=diamond_output_path,
         debug_write_diamond_output=debug_write_diamond_out,
         run_diamond=run_diamond,
