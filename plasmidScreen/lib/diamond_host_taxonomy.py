@@ -141,6 +141,23 @@ def run_diamond_blastx(
     """Run DIAMOND blastx; ORF detection is built in (--min-orf)."""
     reads_path = Path(reads_path)
     diamond_db = Path(diamond_db)
+
+    #        -d "${databaseDir}/diamond/uniref.mini.dmnd" \
+    #    -o outchunk \
+    ##    --evalue "${EVALUE}" \
+    #    --threads "${THREADS}" \
+    #    --block-size 4 \
+    ##    --index-chunks 3 \
+     #   --salltitles \
+     #   --fast \
+     #   --frameshift 15 \
+     #   --range-culling \
+     #   --culling-overlap 50 \
+    #    --range-cover 50 \
+    #    --min-orf 30 \
+    #    -k 1 \
+    #    --masking seg \
+
     cmd: list[str] = [
         "diamond",
         "blastx",
@@ -153,17 +170,24 @@ def run_diamond_blastx(
         "--threads",
         str(threads),
         "--block-size",
-        "200",
+        "4",
         "--index-chunks",
-        "1",
+        "3",
         "--salltitles",
-        "--more-sensitive",
+        "--range-culling",
+        "--culling-overlap",
+        "50",
+        "--range-cover",
+        "50",
+        "--frameshift",
+        "15",
+        "--fast",
         "--min-orf",
-        "10",
+        "30",
+        "-k",
+        "1",
         "--masking",
-        "0",
-        "--top",
-        "5",
+        "seg",
         "-f",
         *DIAMOND_OUTFMT,
     ]

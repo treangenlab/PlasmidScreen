@@ -31,7 +31,6 @@ __all__ = [
 def run_screen(
     fasta_file: str | Path,
     kraken_db: str | Path,
-    *,
     engineered_report_path: str | Path | None = None,
     kraken_output_path: str | Path | None = None,
     threads: int = 4,
