@@ -391,7 +391,7 @@ class Workflow:
                 line += read.read_id + "\t"
                 if read.engineered_by_kmer_scan:
                     line += "engineered_kmers"
-                elif read.engineered_by_codon:
+                elif read.engineered_by_codon_cai:
                     line += "codon_optimized"
                 else:
                     line += "NA"
