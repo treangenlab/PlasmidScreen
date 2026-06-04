@@ -48,17 +48,26 @@ def build_codon_reference(
         data_dir: str | Path,
         taxids: Iterable[str | int] | None = None,
         *,
-        include_taxonomy: bool = True,
-        taxdump_dir: str | Path | None = None,
         csdb_archive: str | Path | None = None,
         download_csdb: bool = True,
         gene_set: GeneSet = "nuclear",
 ) -> BuildCodonReferenceResult:
     """
-    Build codon_tables.json (and optional taxonomy_parents.json) for airgapped use.
+    Build codon_tables.json (and optional taxonomy_parents.json).
 
-    When ``taxids`` is omitted or empty, imports **every taxid present in the CSDB
-    archive** for the selected ``gene_set``. Pass explicit taxids to import a subset.
+
+
+    :param csdb_archive: path of where the archieve should live, by default it's in the APPs directory,
+    :param download_csdb: download the CSDB?
+    :param gene_set: As there are several categories, by default plasmidscreen uses everything denoted as nuclear.
+                     GeneSet specifies the rest.
+
+
+    Build the codon usage reference for CAI scoring. It attempts to use a
+    taxids file if provided to grab the codon references. If none is provided, it imports
+    **every** taxid in the CSDB archive for ``gene_set``. Downloads CSDB archive if download_csdb is provided as true.
+    Writes ``codon_tables.json`` and optionally ``taxonomy_parents.json``
+    under ``output_dir`` (default: PlasmidScreen user data ``codon_usage/``).
     """
     data_dir = Path(data_dir)
     taxid_list = sorted({str(t) for t in taxids if str(t) not in ("0", "")}) if taxids else []
@@ -81,12 +90,6 @@ def build_codon_reference(
 
     store = CodonUsageStore.writable(data_dir)
 
-    if include_taxonomy and not store.has_taxonomy():
-        tdir = Path(taxdump_dir) if taxdump_dir else data_dir.parent / "taxdump"
-        nodes = download_ncbi_taxdump(tdir)
-        count = store.load_taxonomy_from_nodes(nodes)
-        store.save()
-        logging.info("Loaded %d taxonomy parent links", count)
 
     if import_all:
         added, skipped = import_all_csdb_from_archive(

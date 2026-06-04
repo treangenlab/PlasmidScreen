@@ -161,21 +161,18 @@ def build_codon_database(
     taxids: Iterable[str | int] | None = None,
     taxids_file: str | Path | None = None,
     kraken_output: str | Path | None = None,
-    include_taxonomy: bool = True,
-    taxdump_dir: str | Path | None = None,
     csdb_archive: str | Path | None = None,
     download_csdb: bool = True,
     gene_set: GeneSet = "nuclear",
 ) -> BuildCodonReferenceResult:
     """
-    Build the codon usage reference for airgapped CAI scoring (network required).
+    Serves as an API wrapper for build_codon_reference so users can easily create codon database as needed.
 
-    Mirrors ``python plasmidScreen.py build``: unions explicit taxids from ``taxids``,
-    ``taxids_file``, and classified taxids from ``kraken_output``. When no taxids are
-    given, imports **every** taxid in the CSDB archive for ``gene_set``.
-
-    Writes ``codon_tables.json`` and optionally ``taxonomy_parents.json`` under
-    ``output_dir`` (default: PlasmidScreen user data ``codon_usage/``).
+    Build the codon usage reference for CAI scoring. It attempts to use a
+    taxids file if provided to grab the codon references. If none is provided, it imports
+    **every** taxid in the CSDB archive for ``gene_set``. Downloads CSDB archive if download_csdb is provided as true.
+    Writes ``codon_tables.json`` and optionally ``taxonomy_parents.json``
+    under ``output_dir`` (default: PlasmidScreen user data ``codon_usage/``).
     """
     data_dir = Path(output_dir) if output_dir else default_codon_usage_dir()
 
@@ -198,8 +195,6 @@ def build_codon_database(
     return build_codon_reference(
         data_dir,
         taxid_list,
-        include_taxonomy=include_taxonomy,
-        taxdump_dir=taxdump_dir,
         csdb_archive=csdb_archive,
         download_csdb=download_csdb,
         gene_set=gene_set,
