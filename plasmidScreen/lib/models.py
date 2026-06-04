@@ -89,12 +89,12 @@ class ScreenResult:
     codon_cai_engineered_threshold: Optional[float] = None
 
     @property
-    def overall_synthetic_count(self) -> int:
+    def overall_engineered_read_count(self) -> int:
         """Reads classified as engineered under the combined k-mer + codon rules."""
         return sum(1 for r in self.per_read if r.engineered_overall)
 
     @property
-    def overall_natural_count(self) -> int:
+    def overall_natural_read_count(self) -> int:
         return sum(1 for r in self.per_read if not r.engineered_overall)
 
     @property

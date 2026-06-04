@@ -10,9 +10,7 @@ from pathlib import Path
 from typing import Iterable
 
 from plasmidScreen.lib.codon_usage_build import build_codon_reference
-from plasmidScreen.lib.codon_usage_sources import all_csdb_taxids
 from plasmidScreen.lib.codon_usage_db import (
-    CodonUsageStore,
     default_codon_usage_dir,
     taxids_from_kraken_output,
 )
@@ -22,24 +20,13 @@ from plasmidScreen.lib.models import (
     ScreenResult,
 )
 from plasmidScreen.lib.types import GeneSet
-from plasmidScreen.src.analyze_codon_usage import (
-    analyze_codon_adaptation,
-    write_codon_adaptation_tsv,
-)
 from plasmidScreen.src.plasmidScreen import Workflow
 
 __all__ = [
-    "analyze_codon_adaptation",
-    "build_codon_reference",
     "build_codon_database",
-    "all_csdb_taxids",
-    "default_codon_usage_dir",
     "run_screen",
-    "write_codon_adaptation_tsv",
-    "BuildCodonReferenceResult",
-    "CodonAdaptationResult",
-    "CodonUsageStore",
     "ScreenResult",
+    "BuildCodonReferenceResult"
 ]
 
 
@@ -84,8 +71,15 @@ def run_screen(
     kraken_output_path
         Save or load raw Kraken2 classifications (required when ``run_kraken=False`` or
         when ``debug_write_kraken_output=True``).
+    threads
+        Number of threads to be used for the tool for engineered k-mer scanning to codon optimization,
+        unless specific thread counts are given to diamond
     run_kraken
         Run Kraken2 in-process; if False, ``kraken_output_path`` must point to existing output.
+    debug_write_kraken_report
+        Debug option to write kraken report
+    debug_write_kraken_output
+        Debug to write the output of kraken
     codon_usage_dir
         Directory with ``codon_tables.json``. Required when ``run_codon_usage=True``.
     run_codon_usage
@@ -103,6 +97,10 @@ def run_screen(
     diamond_db
         DIAMOND protein database (``.dmnd``). Required when ``run_codon_usage=True`` and
         ``run_diamond=True``.
+    diamond_threads
+        threads to be explicitly passed to diamond, this overwrites the thread specified above for runs.
+    diamond_extra_args
+        extra arguments needed for diamond if needed
     diamond_output_path
         Save or load DIAMOND outfmt 6 TSV (for ``debug_write_diamond_output`` or
         ``run_diamond=False``).
