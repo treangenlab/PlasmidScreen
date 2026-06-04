@@ -216,18 +216,3 @@ class CodonUsageStore:
         self._dirty = True
         return len(self._parents)
 
-
-def taxids_from_kraken_output(kraken_path: str | Path) -> set[str]:
-    """Classified NCBI taxids from a Kraken2 classifications file (excludes ``0``)."""
-    path = Path(kraken_path)
-    taxids: set[str] = set()
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) < 3:
-                continue
-            taxid = parts[2].strip()
-            if taxid and taxid != "0":
-                taxids.add(taxid)
-    return taxids
-

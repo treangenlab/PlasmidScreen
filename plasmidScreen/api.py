@@ -12,11 +12,9 @@ from typing import Iterable
 from plasmidScreen.lib.codon_usage_build import build_codon_reference
 from plasmidScreen.lib.codon_usage_db import (
     default_codon_usage_dir,
-    taxids_from_kraken_output,
 )
 from plasmidScreen.lib.models import (
     BuildCodonReferenceResult,
-    CodonAdaptationResult,
     ScreenResult,
 )
 from plasmidScreen.lib.types import GeneSet
@@ -186,9 +184,6 @@ def build_codon_database(
             line = line.strip().split("#")[0].strip()
             if line:
                 resolved.add(line)
-
-    if kraken_output:
-        resolved.update(taxids_from_kraken_output(Path(kraken_output)))
 
     taxid_list = sorted(resolved) if resolved else None
 
