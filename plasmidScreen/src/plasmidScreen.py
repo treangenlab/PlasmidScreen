@@ -93,50 +93,6 @@ def fast_window_logic(
     return False, max_eng_seen
 
 
-def engineered_scan_to_tsv_lines(
-        labels: list[ReadEngineeringLabel],
-        *,
-        threshold: int,
-        window_size: int,
-        kmer_max_by_read: dict[str, int] | None = None,
-) -> list[str]:
-    """Format engineered k-mer scan labels as TSV lines (header + rows)."""
-    header = (
-        "Label\tRead_ID\tMethods\tEngineeredKmerMaxInWindow\t"
-        "KmerThreshold\tWindowSize"
-    )
-    lines = [header]
-    for lbl in labels:
-        methods = "engineered_kmer_scan" if lbl.label == "Synthetic" else ""
-        max_eng = (kmer_max_by_read or {}).get(lbl.read_id, 0)
-        lines.append(
-            f"{lbl.label}\t{lbl.read_id}\t{methods}\t{max_eng}\t"
-            f"{threshold}\t{window_size}"
-        )
-    return lines
-
-
-def write_engineered_report_tsv(
-        output_path: str | Path,
-        labels: list[ReadEngineeringLabel],
-        *,
-        threshold: int,
-        window_size: int,
-        kmer_max_by_read: dict[str, int] | None = None,
-) -> str:
-    """Write engineered k-mer scan report TSV; returns output path."""
-    out = Path(output_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    lines = engineered_scan_to_tsv_lines(
-        labels,
-        threshold=threshold,
-        window_size=window_size,
-        kmer_max_by_read=kmer_max_by_read,
-    )
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return str(out)
-
-
 class Workflow:
     """
     End-to-end screening: Kraken2 engineered k-mer scan and optional DIAMOND codon CAI.
@@ -144,6 +100,7 @@ class Workflow:
     Kraken output is held in memory by default. Codon analysis uses DIAMOND blastx for
     ORF intervals and host taxids, restricted to reads labeled Natural by the k-mer scan.
     """
+
     def __init__(
             self,
             fasta_file: str | Path,
@@ -421,7 +378,7 @@ class Workflow:
         self._diamond_output_saved = diamond_path
         return results
 
-    def write_screen_result(self, per_read: List[report_output_path]) -> None:
+    def write_screen_result(self, per_read: List[ReadFlagDetail]) -> None:
         header = (
             "Label\tRead_ID\tMethods"
         )
@@ -460,13 +417,13 @@ class Workflow:
                 self.codon_usage_dir,
             )
             codon_results = self.run_codon_adaptation(engineered_scan.natural_read_ids)
-            if self.codon_usage_output_path is not None:
-                codon_path_str = write_codon_adaptation_results_tsv(
-                    self.codon_usage_output_path,
-                    codon_results,
-                    cai_engineered_threshold=self.codon_cai_engineered_threshold,
-                )
-                codon_path = Path(codon_path_str)
+          #  if self.codon_usage_output_path is not None:
+          #      codon_path_str = write_codon_adaptation_results_tsv(
+          #          self.codon_usage_output_path,
+          #          codon_results,
+          #          cai_engineered_threshold=self.codon_cai_engineered_threshold,
+          #      )
+          #      codon_path = Path(codon_path_str)
 
         codon_by_read: dict[str, CodonAdaptationResult] = {
             r.read_id: r for r in codon_results
@@ -519,7 +476,6 @@ class Workflow:
 
         if self.report_output_path is not None:
             self.write_screen_result(per_read)
-        #engineered_path = (self.report_output_path if self.write_engineered_report and self.report_output_path else None)
 
         return ScreenResult(
             engineered_scan=engineered_scan,
