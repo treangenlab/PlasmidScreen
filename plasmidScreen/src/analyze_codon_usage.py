@@ -109,7 +109,6 @@ def analyze_codon_adaptation(
         *,
         diamond_db: Union[str, Path] | None = None,
         diamond_threads: int = 4,
-        diamond_extra_args: Optional[list[str]] = None,
         run_diamond: bool = True,
         diamond_output_path: Union[str, Path] | None = None,
         debug_write_diamond_output: bool = False,
@@ -167,7 +166,6 @@ def analyze_codon_adaptation(
         output_path=diamond_output_path,
         debug_write_output=debug_write_diamond_output,
         threads=diamond_threads,
-        extra_args=diamond_extra_args,
     )
     orfs_by_read, host_by_read = infer_orfs_and_host_taxids(diamond_lines)
     file_format = "fastq" if reads_path.suffix.lower() in (".fastq", ".fq") else "fasta"
@@ -229,38 +227,3 @@ def analyze_codon_adaptation(
 
     return results, diamond_path
 
-
-def write_codon_adaptation_tsv(
-        output_path: Union[str, Path],
-        reads_path: Union[str, Path],
-        *,
-        diamond_db: Union[str, Path] | None = None,
-        run_diamond: bool = True,
-        diamond_output_path: Union[str, Path] | None = None,
-        debug_write_diamond_output: bool = False,
-        diamond_threads: int = 4,
-        diamond_extra_args: Optional[list[str]] = None,
-        include_read_ids: Optional[set[str]] = None,
-        codon_usage_dir: Optional[Union[str, Path]] = None,
-        codon_usage_store: Optional[CodonUsageStore] = None,
-        cai_engineered_threshold: Optional[float] = None,
-) -> tuple[str, list[CodonAdaptationResult]]:
-    """Run :func:`analyze_codon_adaptation` and write TSV; returns ``(output path, results)``."""
-    results, _path = analyze_codon_adaptation(
-        reads_path,
-        diamond_db=diamond_db,
-        run_diamond=run_diamond,
-        diamond_output_path=diamond_output_path,
-        debug_write_diamond_output=debug_write_diamond_output,
-        diamond_threads=diamond_threads,
-        diamond_extra_args=diamond_extra_args,
-        include_read_ids=include_read_ids,
-        codon_usage_dir=codon_usage_dir,
-        codon_usage_store=codon_usage_store,
-    )
-    out_path = write_codon_adaptation_results_tsv(
-        output_path,
-        results,
-        cai_engineered_threshold=cai_engineered_threshold,
-    )
-    return out_path, results

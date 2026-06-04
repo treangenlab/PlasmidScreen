@@ -5,7 +5,7 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Literal, List
 
 import numpy as np
 from numpy.typing import NDArray
@@ -147,7 +147,6 @@ class Workflow:
 
     fasta_file: Path
     report_output_path: Path | None
-    write_engineered_report: bool
     kraken_db: Path
     kraken_output_path: Path | None
     debug_write_kraken_output: bool
@@ -178,7 +177,6 @@ class Workflow:
         threads: int,
         kraken_raw_output: str | Path | None,
         *,
-        write_engineered_report: bool = False,
         window_size: int = 200,
         engineered_kmer_threshold: int = 25,
         codon_usage_output_path: str | Path | None = None,
@@ -199,7 +197,6 @@ class Workflow:
         self.report_output_path = (
             Path(output_report_path) if output_report_path else None
         )
-        self.write_engineered_report = write_engineered_report
         self.kraken_db = Path(kraken_db)
         self.kraken_output_path = Path(kraken_raw_output) if kraken_raw_output else None
         self.threshold = engineered_kmer_threshold
@@ -397,18 +394,18 @@ class Workflow:
                 label = "Natural"
             result.labels.append(ReadEngineeringLabel(read_id=read_id, label=label))
 
-        if self.write_engineered_report:
-            if self.report_output_path is None:
-                raise ValueError(
-                    "report_output_path is required when write_engineered_report=True."
-                )
-            write_engineered_report_tsv(
-                self.report_output_path,
-                result.labels,
-                threshold=self.threshold,
-                window_size=self.window_size,
-                kmer_max_by_read=kmer_max_by_read,
-            )
+#        if self.write_engineered_report:
+#            if self.report_output_path is None:
+#                raise ValueError(
+#                    "report_output_path is required when write_engineered_report=True."
+#                )
+#            write_engineered_report_tsv(
+#                self.report_output_path,
+#                result.labels,
+#                threshold=self.threshold,
+#                window_size=self.window_size,
+#                kmer_max_by_read=kmer_max_by_read,
+#            )
 
         logging.info(
             "Engineered k-mer scan complete: %s/%s synthetic reads.",
@@ -440,7 +437,6 @@ class Workflow:
             self.fasta_file,
             diamond_db=self.diamond_db,
             diamond_threads=self.diamond_threads,
-            diamond_extra_args=self.diamond_extra_args,
             run_diamond=self.run_diamond_enabled,
             diamond_output_path=self.diamond_output_path,
             debug_write_diamond_output=self.debug_write_diamond_output,
@@ -449,6 +445,43 @@ class Workflow:
         )
         self._diamond_output_saved = diamond_path
         return results
+
+#    per_read.append(
+#        ReadFlagDetail(
+#            read_id=lbl.read_id,
+#            kmer_label=lbl.label,
+#            engineered_by_kmer_scan=engineered_by_kmer,
+#            engineered_overall=engineered_overall,
+#            overall_label=overall_label,
+#            engineered_kmer_max_in_window=kmer_max_by_read.get(lbl.read_id),
+#            engineered_kmer_threshold=self.threshold,
+#            engineered_kmer_window_size=self.window_size,
+#            cai_vs_host=cai,
+#            engineered_by_codon_cai=engineered_by_codon,
+#            codon_cai_threshold=self.codon_cai_engineered_threshold,
+#        )
+#    )
+
+    def write_screen_result(self, per_read: List[report_output_path]) -> None:
+        header = (
+            "Label\tRead_ID\tMethods"
+        )
+        with open(self.report_output_path, 'w') as write_obj:
+            for read in per_read:
+                if read.engineered_overall:
+                    line = "Engineered\t"
+                else:
+                    line = "Natural\t"
+                line+=read.read_id+"\t"
+                if read.engineered_by_kmer_scan:
+                    line+="engineered_kmers"
+                elif read.engineered_by_codon:
+                    line+="codon_optimized"
+                else:
+                    line+="NA"
+                write_obj.write(line+"\n")
+
+
 
     def run(self) -> ScreenResult:
         if self.run_kraken_enabled:
@@ -527,16 +560,15 @@ class Workflow:
                 )
             )
 
-        engineered_path = (
-            self.report_output_path
-            if self.write_engineered_report and self.report_output_path
-            else None
-        )
+        if self.report_output_path is not None:
+            self.write_screen_result(per_read)
+        #engineered_path = (self.report_output_path if self.write_engineered_report and self.report_output_path else None)
+
         return ScreenResult(
             engineered_scan=engineered_scan,
             codon_adaptation=codon_results,
             per_read=per_read,
-            engineered_report_path=engineered_path,
+            engineered_report_path=self.report_output_path,
             codon_usage_report_path=codon_path,
             diamond_output_path=self._diamond_output_saved,
             engineered_kmer_threshold=self.threshold,

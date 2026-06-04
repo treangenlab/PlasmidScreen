@@ -98,7 +98,6 @@ def resolve_diamond_lines(
         output_path: str | Path | None = None,
         debug_write_output: bool = False,
         threads: int = 4,
-        extra_args: Sequence[str] | None = None,
 ) -> tuple[list[str], Path | None]:
     """
     Run DIAMOND or load a saved TSV.
@@ -128,7 +127,6 @@ def resolve_diamond_lines(
         reads_path,
         diamond_db,
         threads=threads,
-        extra_args=extra_args,
         output_path=write_path,
     )
     return lines, write_path
@@ -138,7 +136,6 @@ def run_diamond_blastx(
         reads_path: str | Path,
         diamond_db: str | Path,
         threads: int = 4,
-        extra_args: Sequence[str] | None = None,
         output_path: str | Path | None = None,
 ) -> list[str]:
     """Run DIAMOND blastx; ORF detection is built in (--min-orf)."""
@@ -170,8 +167,6 @@ def run_diamond_blastx(
         "-f",
         *DIAMOND_OUTFMT,
     ]
-    if extra_args:
-        cmd.extend(list(extra_args))
 
     if output_path is not None:
         out = Path(output_path)

@@ -133,7 +133,6 @@ def run_screen(
         str(kraken_db),
         threads,
         str(kraken_output_path) if kraken_output_path else None,
-        write_engineered_report=engineered_report_path is not None,
         window_size=window_size,
         engineered_kmer_threshold=engineered_kmer_threshold,
         codon_usage_output_path=str(codon_usage_output_path) if codon_usage_output_path else None,
