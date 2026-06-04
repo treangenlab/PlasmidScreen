@@ -500,7 +500,7 @@ class Workflow:
             cai = codon.cai_vs_host if codon else None
             engineered_by_codon: bool | None = None
             if cai is not None and self.codon_cai_engineered_threshold is not None:
-                engineered_by_codon = cai < self.codon_cai_engineered_threshold
+                engineered_by_codon = cai > self.codon_cai_engineered_threshold
 
             engineered_by_kmer = lbl.label == "Synthetic"
             engineered_overall = compute_engineered_overall(

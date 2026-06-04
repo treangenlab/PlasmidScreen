@@ -16,12 +16,6 @@ from plasmidScreen.lib.diamond_host_taxonomy import (
 )
 
 
-def parse_kraken_file(kraken_path: str | Path) -> dict[str, KrakenReadInfo]:
-    """Parse a Kraken2 classifications file into ``read_id -> (status, taxid, length, kmer_info)``."""
-    with open(kraken_path, "r", encoding="utf-8", buffering=1024 * 1024) as f:
-        return parse_kraken_lines(f)
-
-
 def parse_kraken_lines(lines: Iterable[str]) -> dict[str, KrakenReadInfo]:
     """Parse Kraken2 classification lines (same layout as :func:`parse_kraken_file`)."""
     kraken_data: dict[str, KrakenReadInfo] = {}
@@ -46,7 +40,7 @@ def compute_cai(cds_seq: str, weights: dict[str, float]) -> float:
     log_w_sum = 0.0
     codon_count = 0
     for i in range(0, len(cds_seq) - 2, 3):
-        codon = cds_seq[i : i + 3]
+        codon = cds_seq[i: i + 3]
         if codon in weights and weights[codon] > 0:
             log_w_sum += math.log(weights[codon])
             codon_count += 1
@@ -71,10 +65,10 @@ def codon_adaptation_to_tsv_lines(results: Iterable[CodonAdaptationResult]) -> l
 
 
 def write_codon_adaptation_results_tsv(
-    output_path: Union[str, Path],
-    results: Iterable[CodonAdaptationResult],
-    *,
-    cai_engineered_threshold: Optional[float] = None,
+        output_path: Union[str, Path],
+        results: Iterable[CodonAdaptationResult],
+        *,
+        cai_engineered_threshold: Optional[float] = None,
 ) -> str:
     """
     Write codon adaptation results to a TSV file.
@@ -111,17 +105,17 @@ def write_codon_adaptation_results_tsv(
 
 
 def analyze_codon_adaptation(
-    reads_path: Union[str, Path],
-    *,
-    diamond_db: Union[str, Path] | None = None,
-    diamond_threads: int = 4,
-    diamond_extra_args: Optional[list[str]] = None,
-    run_diamond: bool = True,
-    diamond_output_path: Union[str, Path] | None = None,
-    debug_write_diamond_output: bool = False,
-    codon_usage_store: Optional[CodonUsageStore] = None,
-    codon_usage_dir: Optional[Union[str, Path]] = None,
-    include_read_ids: Optional[set[str]] = None,
+        reads_path: Union[str, Path],
+        *,
+        diamond_db: Union[str, Path] | None = None,
+        diamond_threads: int = 4,
+        diamond_extra_args: Optional[list[str]] = None,
+        run_diamond: bool = True,
+        diamond_output_path: Union[str, Path] | None = None,
+        debug_write_diamond_output: bool = False,
+        codon_usage_store: Optional[CodonUsageStore] = None,
+        codon_usage_dir: Optional[Union[str, Path]] = None,
+        include_read_ids: Optional[set[str]] = None,
 ) -> tuple[list[CodonAdaptationResult], Path | None]:
     """
     Score codon adaptation (CAI) for reads using DIAMOND and a pre-built CSDB reference.
@@ -193,7 +187,7 @@ def analyze_codon_adaptation(
 
         best = max(orfs, key=lambda o: (o.length_bp, o.end))
         seq_str = str(record.seq).upper()
-        cds_seq = seq_str[best.start : best.end]
+        cds_seq = seq_str[best.start: best.end]
         if len(cds_seq) < 3:
             continue
 
@@ -237,19 +231,19 @@ def analyze_codon_adaptation(
 
 
 def write_codon_adaptation_tsv(
-    output_path: Union[str, Path],
-    reads_path: Union[str, Path],
-    *,
-    diamond_db: Union[str, Path] | None = None,
-    run_diamond: bool = True,
-    diamond_output_path: Union[str, Path] | None = None,
-    debug_write_diamond_output: bool = False,
-    diamond_threads: int = 4,
-    diamond_extra_args: Optional[list[str]] = None,
-    include_read_ids: Optional[set[str]] = None,
-    codon_usage_dir: Optional[Union[str, Path]] = None,
-    codon_usage_store: Optional[CodonUsageStore] = None,
-    cai_engineered_threshold: Optional[float] = None,
+        output_path: Union[str, Path],
+        reads_path: Union[str, Path],
+        *,
+        diamond_db: Union[str, Path] | None = None,
+        run_diamond: bool = True,
+        diamond_output_path: Union[str, Path] | None = None,
+        debug_write_diamond_output: bool = False,
+        diamond_threads: int = 4,
+        diamond_extra_args: Optional[list[str]] = None,
+        include_read_ids: Optional[set[str]] = None,
+        codon_usage_dir: Optional[Union[str, Path]] = None,
+        codon_usage_store: Optional[CodonUsageStore] = None,
+        cai_engineered_threshold: Optional[float] = None,
 ) -> tuple[str, list[CodonAdaptationResult]]:
     """Run :func:`analyze_codon_adaptation` and write TSV; returns ``(output path, results)``."""
     results, _path = analyze_codon_adaptation(

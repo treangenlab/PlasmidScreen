@@ -276,9 +276,10 @@ def hits_to_orf_intervals(
     return intervals
 
 
-def majority_taxid(
-        taxids: Sequence[str],
-) -> Optional[str]:
+def majority_taxid(taxids: Sequence[str],) -> Optional[str]:
+    """
+    Gets the majority taxid along a subsequence from diamond.
+    """
     clean = [t for t in (str(x) for x in taxids) if t not in ("0", "")]
     if not clean:
         return None
