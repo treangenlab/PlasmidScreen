@@ -153,10 +153,6 @@ def build(
         ),
         taxids: str | None = typer.Option(None, "--taxids", help="Comma-separated NCBI taxonomy IDs"),
         taxids_file: Path | None = typer.Option(None, "--taxids-file", help="One taxid per line"),
-        skip_taxonomy: bool = typer.Option(
-            False, "--skip-taxonomy", help="Skip NCBI taxdump (no lineage resolution)"
-        ),
-        taxdump_dir: Path | None = typer.Option(None, "--taxdump-dir", help="NCBI taxdump cache directory"),
         csdb_archive: Path | None = typer.Option(
             None,
             "--csdb-archive",
@@ -192,8 +188,6 @@ def build(
     result = build_codon_reference(
         data_dir,
         taxid_list or None,
-        include_taxonomy=not skip_taxonomy,
-        taxdump_dir=taxdump_dir,
         csdb_archive=archive,
         download_csdb=not no_download_csdb,
         gene_set=gene_set,
