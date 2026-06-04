@@ -39,7 +39,7 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
                                                     help="Window size to scan for engineered k-mers")] = 200,
            engineered_k_mer_threshold: Annotated[int, typer.Option("--threshold",
                                                                    help="Threshold of required "
-                                                                        "identified engineered DNA.")] = 25,
+                                                                        "identified engineered DNA.")] = 10,
            codon_usage_output: Annotated[str | None, typer.Option("--codon-usage-output",
                                                                   help="Optional codon usage TSV output path. Only "
                                                                        "produced for reads labeled Natural.")] = None,

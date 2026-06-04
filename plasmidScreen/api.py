@@ -35,7 +35,7 @@ def run_screen(
     kraken_output_path: str | Path | None = None,
     threads: int = 4,
     window_size: int = 200,
-    engineered_kmer_threshold: int = 25,
+    engineered_kmer_threshold: int = 10,
     codon_usage_dir: str | Path | None = None,
     run_kraken: bool = True,
     debug_write_kraken_output: bool = False,
