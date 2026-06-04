@@ -9,8 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from plasmidScreen.lib.codon_usage_build import build_codon_reference
-from plasmidScreen.lib.codon_usage_db import (
+from plasmidScreen.src.codon_usage.codon_usage_build import build_codon_reference
+from plasmidScreen.src.codon_usage.codon_usage_db import (
     default_codon_usage_dir,
 )
 from plasmidScreen.lib.models import (

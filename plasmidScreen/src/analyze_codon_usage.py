@@ -7,7 +7,7 @@ from typing import Iterable, Optional, Union
 
 from Bio import SeqIO
 
-from plasmidScreen.lib.codon_usage_db import CodonUsageStore, default_codon_usage_dir
+from plasmidScreen.src.codon_usage.codon_usage_db import CodonUsageStore, default_codon_usage_dir
 from plasmidScreen.lib.models import CodonAdaptationResult
 from plasmidScreen.lib.types import CdsOrf, KrakenReadInfo
 from plasmidScreen.lib.diamond_host_taxonomy import (

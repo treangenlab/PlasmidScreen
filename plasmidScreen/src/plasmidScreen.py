@@ -20,7 +20,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
         return _wrap
 
-from plasmidScreen.lib.codon_usage_db import default_codon_usage_dir
+from plasmidScreen.src.codon_usage.codon_usage_db import default_codon_usage_dir
 from plasmidScreen.lib.models import (
     CodonAdaptationResult,
     EngineeredScanResult,

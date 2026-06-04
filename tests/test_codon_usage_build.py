@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from plasmidScreen.lib.codon_usage_build import build_codon_reference
+from plasmidScreen.src.codon_usage.codon_usage_build import build_codon_reference
 
 
 @patch("plasmidScreen.lib.codon_usage_build.import_all_csdb_from_archive")

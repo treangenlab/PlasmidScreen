@@ -5,11 +5,11 @@ from rich.logging import RichHandler
 from typing import Annotated
 
 from plasmidScreen.lib.funcs import get_default_db_path
-from plasmidScreen.lib.codon_usage_db import default_codon_usage_dir
-from plasmidScreen.lib.codon_usage_sources import default_csdb_archive_path
+from plasmidScreen.src.codon_usage.codon_usage_db import default_codon_usage_dir
+from plasmidScreen.src.codon_usage.codon_usage_sources import default_csdb_archive_path
 from plasmidScreen.api import run_screen
 from pathlib import Path
-from plasmidScreen.lib.codon_usage_build import build_codon_reference
+from plasmidScreen.src.codon_usage.codon_usage_build import build_codon_reference
 from plasmidScreen.lib.types import GeneSet
 
 

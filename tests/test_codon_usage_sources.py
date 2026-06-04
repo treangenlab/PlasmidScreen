@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import io
-import json
 import tarfile
 from pathlib import Path
 
 import pytest
 
-from plasmidScreen.lib.codon_usage_db import CodonUsageStore
-from plasmidScreen.lib.codon_usage_sources import (
+from plasmidScreen.src.codon_usage.codon_usage_db import CodonUsageStore
+from plasmidScreen.src.codon_usage.codon_usage_sources import (
     build_csdb_ancestor_map,
     import_csdb_taxids,
     index_csdb_archive,
@@ -78,7 +77,7 @@ def test_read_csdb_table_from_archive(csdb_archive: Path) -> None:
 
 
 def test_import_all_csdb_from_archive(tmp_path: Path, csdb_archive: Path) -> None:
-    from plasmidScreen.lib.codon_usage_sources import import_all_csdb_from_archive
+    from plasmidScreen.src.codon_usage.codon_usage_sources import import_all_csdb_from_archive
 
     store = CodonUsageStore.writable(tmp_path / "codon_usage")
     added, skipped = import_all_csdb_from_archive(store, csdb_archive)
@@ -90,7 +89,7 @@ def test_import_all_csdb_from_archive(tmp_path: Path, csdb_archive: Path) -> Non
 def test_import_all_csdb_from_archive_skips_existing(
     tmp_path: Path, csdb_archive: Path
 ) -> None:
-    from plasmidScreen.lib.codon_usage_sources import import_all_csdb_from_archive
+    from plasmidScreen.src.codon_usage.codon_usage_sources import import_all_csdb_from_archive
 
     store = CodonUsageStore.writable(tmp_path / "codon_usage")
     store.set_codon_table("9606", {"GCT": 0.25}, source="test")
@@ -101,7 +100,7 @@ def test_import_all_csdb_from_archive_skips_existing(
 
 
 def test_all_csdb_taxids(csdb_archive: Path) -> None:
-    from plasmidScreen.lib.codon_usage_sources import all_csdb_taxids
+    from plasmidScreen.src.codon_usage.codon_usage_sources import all_csdb_taxids
 
     assert all_csdb_taxids(csdb_archive, rebuild_index=True) == ["511145", "9606"]
 

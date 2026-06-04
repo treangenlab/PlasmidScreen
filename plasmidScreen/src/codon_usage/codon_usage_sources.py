@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Iterable
 
 from Bio.Data import CodonTable
-from plasmidScreen.lib.codon_usage_db import CodonUsageStore
+from plasmidScreen.src.codon_usage.codon_usage_db import CodonUsageStore
 from plasmidScreen.lib.funcs import get_default_db_path
 from plasmidScreen.lib.types import GeneSet
 

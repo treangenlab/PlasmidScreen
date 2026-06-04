@@ -1,15 +1,13 @@
 """Tests for codon usage reference store (JSON, airgapped)."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
-from plasmidScreen.lib.codon_usage_db import (
+from plasmidScreen.src.codon_usage.codon_usage_db import (
     CodonUsageStore,
     cai_weights_from_frequencies,
-    parse_taxonomy_nodes,
 )
 from plasmidScreen.lib.exceptions import CodonReferenceNotFoundError, MissingCodonReferenceError
 

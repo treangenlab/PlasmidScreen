@@ -5,11 +5,11 @@ import logging
 from pathlib import Path
 from typing import Iterable
 
-from plasmidScreen.lib.codon_usage_db import (
+from plasmidScreen.src.codon_usage.codon_usage_db import (
     CODON_TABLES_FILE,
     CodonUsageStore,
 )
-from plasmidScreen.lib.codon_usage_sources import (
+from plasmidScreen.src.codon_usage.codon_usage_sources import (
     all_csdb_taxids,
     default_csdb_archive_path,
     download_csdb_archive,

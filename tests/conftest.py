@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from plasmidScreen.lib.codon_usage_db import CodonUsageStore, cai_weights_from_frequencies
+from plasmidScreen.src.codon_usage.codon_usage_db import CodonUsageStore
 from Bio.Data import CodonTable
 
 FIXTURES = Path(__file__).parent / "fixtures"

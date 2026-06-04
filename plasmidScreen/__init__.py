@@ -5,7 +5,7 @@ from plasmidScreen.api import (
     build_codon_database,
     run_screen,
 )
-from plasmidScreen.lib.codon_usage_db import CodonUsageStore
+from plasmidScreen.src.codon_usage.codon_usage_db import CodonUsageStore
 from plasmidScreen.lib.exceptions import CodonReferenceNotFoundError, MissingCodonReferenceError
 from plasmidScreen.lib.models import (
     BuildCodonReferenceResult,
