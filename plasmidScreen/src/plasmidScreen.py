@@ -27,12 +27,11 @@ from plasmidScreen.lib.models import (
     ReadFlagDetail,
     ReadEngineeringLabel,
     ScreenResult,
-    compute_engineered_overall,
+    compute_engineered_overall, CodonAdaptationRead,
 )
 from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
     parse_kraken_lines,
-    write_codon_adaptation_results_tsv,
 )
 
 
@@ -119,8 +118,6 @@ class Workflow:
             run_codon_usage: bool = True,
             codon_cai_engineered_threshold: float | None = None,
             diamond_db: str | Path | None = None,
-            diamond_threads: int = 4,
-            diamond_extra_args: list[str] | None = None,
             diamond_output_path: str | Path | None = None,
             debug_write_diamond_output: bool = False,
             run_diamond: bool = True,
@@ -148,8 +145,7 @@ class Workflow:
         self._kraken_lines = None
         self._kraken_data = None
         self.diamond_db = Path(diamond_db) if diamond_db else None
-        self.diamond_threads = diamond_threads
-        self.diamond_extra_args = diamond_extra_args
+        self.diamond_threads = self.max_threads
         self.diamond_output_path = (
             Path(diamond_output_path) if diamond_output_path else None
         )
@@ -346,7 +342,7 @@ class Workflow:
         )
         return result
 
-    def run_codon_adaptation(self, natural_read_ids: set[str]) -> list[CodonAdaptationResult]:
+    def run_codon_adaptation(self, natural_read_ids: set[str]) -> CodonAdaptationResult:
         if not natural_read_ids:
             logging.info("No reads labeled Natural; skipping codon usage analysis.")
             return []
@@ -402,7 +398,6 @@ class Workflow:
             self.run_kraken()
         engineered_scan = self.scan_engineered_blocks_kraken()
 
-        codon_results: list[CodonAdaptationResult] = []
         codon_path: Path | None = None
 
         if self.run_codon_usage and engineered_scan.natural_read_ids:
@@ -416,7 +411,7 @@ class Workflow:
                 len(engineered_scan.natural_read_ids),
                 self.codon_usage_dir,
             )
-            codon_results = self.run_codon_adaptation(engineered_scan.natural_read_ids)
+            codon_results: CodonAdaptationResult  = self.run_codon_adaptation(engineered_scan.natural_read_ids)
           #  if self.codon_usage_output_path is not None:
           #      codon_path_str = write_codon_adaptation_results_tsv(
           #          self.codon_usage_output_path,
@@ -425,8 +420,8 @@ class Workflow:
           #      )
           #      codon_path = Path(codon_path_str)
 
-        codon_by_read: dict[str, CodonAdaptationResult] = {
-            r.read_id: r for r in codon_results
+        codon_by_read: dict[str, CodonAdaptationRead] = {
+            r.read_id: r for r in CodonAdaptationResult.labels
         }
 
         kmer_max_by_read: dict[str, int] = {}

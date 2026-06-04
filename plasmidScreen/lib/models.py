@@ -6,11 +6,25 @@ from pathlib import Path
 from typing import Literal, Optional
 
 
-@dataclass(frozen=True)
+@dataclass
 class CodonAdaptationResult:
+    labels: list[CodonAdaptationRead] = field(default_factory=list)
+
+    @property
+    def natural_read_ids(self) -> set[str]:
+        return {r.read_id for r in self.labels if r.label == "Natural"}
+
+    @property
+    def engineered_read_ids(self) -> set[str]:
+        return {r.read_id for r in self.labels if r.label == "Synthetic"}
+
+
+@dataclass(frozen=True)
+class CodonAdaptationRead:
     """Per-read codon adaptation scores from DIAMOND ORFs and CSDB reference weights."""
 
     read_id: str
+    label: Literal["Natural", "Synthetic"]
     cds_strand: str  # "+" or "-" on the read
     cds_start: int  # 0-based start (half-open interval with cds_end)
     cds_end: int
@@ -38,6 +52,10 @@ class EngineeredScanResult:
         return {r.read_id for r in self.labels if r.label == "Natural"}
 
     @property
+    def engineered_read_ids(self) -> set[str]:
+        return {r.read_id for r in self.labels if r.label == "Synthetic"}
+
+    @property
     def any_synthetic(self) -> bool:
         return self.synthetic_count > 0
 
@@ -54,9 +72,9 @@ class BuildCodonReferenceResult:
 
 
 def compute_engineered_overall(
-    *,
-    engineered_by_kmer_scan: bool,
-    engineered_by_codon_cai: bool | None,
+        *,
+        engineered_by_kmer_scan: bool,
+        engineered_by_codon_cai: bool | None,
 ) -> bool:
     """
     Combined engineered call for a read using thresholds active in ``run_screen``.
@@ -79,14 +97,15 @@ class ScreenResult:
     """
 
     engineered_scan: EngineeredScanResult
-    codon_adaptation: list[CodonAdaptationResult] = field(default_factory=list)
+    codon_adaptation: CodonAdaptationResult
+    engineered_kmer_threshold: int
+    engineered_kmer_window_size: int
+    codon_cai_engineered_threshold: float
     per_read: list["ReadFlagDetail"] = field(default_factory=list)
     engineered_report_path: Optional[Path] = None
     codon_usage_report_path: Optional[Path] = None
     diamond_output_path: Optional[Path] = None
-    engineered_kmer_threshold: int = 25
-    engineered_kmer_window_size: int = 200
-    codon_cai_engineered_threshold: Optional[float] = None
+
 
     @property
     def overall_engineered_read_count(self) -> int:
