@@ -125,16 +125,3 @@ python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db --skip-cod
 ```
 
 If a host taxid has no resolvable codon table, screening raises `MissingCodonReferenceError` — build or extend the reference first (no online fetch at runtime).
-
-### Tests
-
-```bash
-pip install -r requirements.txt
-pytest
-```
-
-### Demo
-
-```bash
-PlasmidScreen example/full_length.fa
-```
