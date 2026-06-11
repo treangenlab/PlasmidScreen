@@ -5,6 +5,8 @@ from plasmidScreen.api import (
     build_codon_database,
     run_screen,
 )
+from plasmidScreen.src.analyze_codon_usage import analyze_codon_adaptation
+from plasmidScreen.src.codon_usage.codon_usage_build import build_codon_reference
 from plasmidScreen.src.codon_usage.codon_usage_db import CodonUsageStore
 from plasmidScreen.lib.exceptions import CodonReferenceNotFoundError, MissingCodonReferenceError
 from plasmidScreen.lib.models import (
@@ -30,4 +32,6 @@ __all__ = [
     "ReadFlagDetail",
     "ScreenResult",
     "compute_engineered_overall",
+    "build_codon_reference",
+    "analyze_codon_adaptation"
 ]
