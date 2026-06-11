@@ -8,8 +8,7 @@ from typing import Literal, Optional
 
 @dataclass
 class CodonAdaptationResult:
-    labels: list[CodonAdaptationRead] = field(default_factory=list)
-
+    labels: list[CodonAdaptationRead] | None = field(default=None)
     @property
     def natural_read_ids(self) -> set[str]:
         return {r.read_id for r in self.labels if r.label == "Natural"}

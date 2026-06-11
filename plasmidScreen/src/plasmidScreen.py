@@ -321,20 +321,6 @@ class Workflow:
                 result.natural_count += 1
                 label = "Natural"
             result.labels.append(ReadEngineeringLabel(read_id=read_id, label=label))
-
-        #        if self.write_engineered_report:
-        #            if self.report_output_path is None:
-        #                raise ValueError(
-        #                    "report_output_path is required when write_engineered_report=True."
-        #                )
-        #            write_engineered_report_tsv(
-        #                self.report_output_path,
-        #                result.labels,
-        #                threshold=self.threshold,
-        #                window_size=self.window_size,
-        #                kmer_max_by_read=kmer_max_by_read,
-        #            )
-
         logging.info(
             "Engineered k-mer scan complete: %s/%s synthetic reads.",
             result.synthetic_count,
@@ -399,7 +385,7 @@ class Workflow:
         engineered_scan = self.scan_engineered_blocks_kraken()
 
         codon_path: Path | None = None
-
+        codon_results: CodonAdaptationResult | None = None
         if self.run_codon_usage and engineered_scan.natural_read_ids:
             if engineered_scan.any_synthetic:
                 logging.info(
@@ -419,10 +405,11 @@ class Workflow:
           #          cai_engineered_threshold=self.codon_cai_engineered_threshold,
           #      )
           #      codon_path = Path(codon_path_str)
-
-        codon_by_read: dict[str, CodonAdaptationRead] = {
-            r.read_id: r for r in CodonAdaptationResult.labels
-        }
+        codon_by_read: dict[str, CodonAdaptationRead] | None = None
+        if codon_results is not None:
+            codon_by_read = {
+                r.read_id: r for r in codon_results.labels
+            }
 
         kmer_max_by_read: dict[str, int] = {}
         if self._kraken_lines is not None:
@@ -438,7 +425,10 @@ class Workflow:
 
         per_read: list[ReadFlagDetail] = []
         for lbl in engineered_scan.labels:
-            codon = codon_by_read.get(lbl.read_id)
+            if codon_by_read is not None:
+                codon = codon_by_read.get(lbl.read_id)
+            else:
+                codon =None
             cai = codon.cai_vs_host if codon else None
             engineered_by_codon: bool | None = None
             if cai is not None and self.codon_cai_engineered_threshold is not None:
