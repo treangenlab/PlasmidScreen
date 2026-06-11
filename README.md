@@ -36,40 +36,44 @@ The written engineered report TSV (`report.txt`) still records **k-mer scan** la
 
 ```python
 from plasmidScreen import (
-    build_codon_reference,
-    analyze_codon_adaptation,
+    build_codon_database,
     run_screen,
-    taxids_from_kraken_output,
 )
 
-# Step 1 — build reference JSON from Codon Statistics Database
-build_codon_reference(
-    "codon_usage/",
-    csdb_archive="/path/to/codonstatsdb_March2022.tar.gz",  # optional; auto-download if omitted
-)
+# Step 1 — build reference JSON from Codon Statistics Database, 
+# please specify path otherwise download will occur in ~/.local/share/PlasmidScreen/
+build_codon_database(output_dir="/path/to/codon_usage_db")
+
 
 # Full pipeline: Kraken engineered scan + codon optimization detection on Natural reads
 screen_result = run_screen(
     "reads.fa",
     kraken_db="/path/to/kraken/db",
     diamond_db="/path/to/protein.dmnd",
-    codon_usage_dir="codon_usage/",
+    codon_usage_dir="/path/to/codon_usage_db",
     engineered_report_path="engineered_report.txt",  # omit for in-memory results only
     codon_cai_engineered_threshold=0.7,
 )
-# K-mer-only vs combined counts (differ when --codon-cai-threshold is set)
-print("k-mer synthetic:", screen_result.engineered_scan.synthetic_count)
-print("overall synthetic:", screen_result.overall_synthetic_count)
-print(len(screen_result.codon_adaptation))
+# Here is the found engineered reads
+print(screen_result.engineered_read_ids)
+# Here is the engineered reads based on kmer scanning
+print(screen_result.engineered_scan.engineered_read_ids)
+# Here is the engineered reads from codon optimization detection
+print(screen_result.codon_adaptation.engineered_read_ids)
+# Here is the natural read ids found:
+print(screen_result.natural_read_ids_overall)
+# If you want to get more granular information of each read's call you can look at the list of reads
+# This contains the ReadFlagDetail object that holds additonal info
+
 for r in screen_result.per_read:
     print(
         r.read_id,
-        r.overall_label,
-        r.engineered_overall,
-        r.engineered_methods,
-        r.cai_vs_host,
+        r.overall_label, # Returns literal of natural or synthetic
+        r.engineered_overall, # boolean True if engineered
+        r.engineered_methods, # returns list of strings of type of engineering detection performed on the read
+        r.engineered_by_kmer_scan, # boolean if engineered by kmer scan
+        r.cai_vs_host,  # boolean if engineered by codon optimization threshold
     )
-print(screen_result.overall_synthetic_count, screen_result.engineered_read_ids)
 ```
 
 ### CLI — build reference (network required)
@@ -83,9 +87,6 @@ python plasmidScreen.py build \
   --csdb-archive /data/codonstatsdb_March2022.tar.gz \
   --no-download-csdb
 
-# Subset: explicit taxids or taxids seen in a Kraken classifications file
-python plasmidScreen.py build --taxids 9606,511145
-python plasmidScreen.py build --taxids-file hosts.txt
 ```
 
 The archive is cached under `~/.local/share/PlasmidScreen/` unless `--csdb-archive` is set.
