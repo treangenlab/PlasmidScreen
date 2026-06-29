@@ -156,7 +156,9 @@ class CodonUsageStore:
                 return current
             seen.add(current)
             parent = self.parent_taxid(current)
-            if parent is None or parent == current:
+            if parent is None:
+                continue
+            elif parent == current:
                 break
             current = parent
         return None

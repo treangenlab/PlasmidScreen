@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import tempfile
+
 import os
 import sys
 from pathlib import Path
@@ -32,6 +34,24 @@ def get_default_db_path(app_name: str) -> str:
         else:
             data_dir = home / ".local" / "share" / app_name
 
-    data_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        # Test write permissions explicitly (handles cases where mkdir succeeds but write fails)
+        if not os.access(data_dir, os.W_OK):
+            raise PermissionError
+
+    except (PermissionError, OSError):
+        # 4. Fallback Strategy: Use the OS temporary directory
+        # tempfile.gettempdir() automatically resolves to /tmp on Linux/macOS
+        data_dir = Path(tempfile.gettempdir()) / app_name
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        # Alert the user/logs that data persistence is volatile
+        print(
+            f"Warning: Primary data directory unwritable. "
+            f"Falling back to temporary storage: {data_dir}",
+            file=sys.stderr
+        )
 
     return str(data_dir)

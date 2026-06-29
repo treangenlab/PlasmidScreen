@@ -8,7 +8,7 @@ from typing import Literal, Optional
 
 @dataclass
 class CodonAdaptationResult:
-    labels: list[CodonAdaptationRead] | None = field(default=None)
+    labels: list[CodonAdaptationRead] | None = field(default=list)
     @property
     def natural_read_ids(self) -> set[str]:
         return {r.read_id for r in self.labels if r.label == "Natural"}
@@ -23,7 +23,7 @@ class CodonAdaptationRead:
     """Per-read codon adaptation scores from DIAMOND ORFs and CSDB reference weights."""
 
     read_id: str
-    label: Literal["Natural", "Synthetic"]
+    #label: Literal["Natural", "Synthetic"]
     cds_strand: str  # "+" or "-" on the read
     cds_start: int  # 0-based start (half-open interval with cds_end)
     cds_end: int

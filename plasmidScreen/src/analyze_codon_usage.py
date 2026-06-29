@@ -199,9 +199,9 @@ def analyze_codon_adaptation(
         pending.append((read_id, cds, host_taxid))
 
     host_taxids = {p[2] for p in pending if p[2] not in ("0", "")}
-    store.require_host_taxids(host_taxids)
+    #store.require_host_taxids(host_taxids)
 
-    results: CodonAdaptationResult = CodonAdaptationResult()
+    results: CodonAdaptationResult = CodonAdaptationResult(labels=[])
     for read_id, cds, host_taxid in pending:
         ref_taxid: Optional[str] = None
         cai_score: Optional[float] = None
