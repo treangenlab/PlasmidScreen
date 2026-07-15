@@ -7,9 +7,9 @@ fastq = Path("data/example_univec_sequence.fasta")
 
 if __name__ == '__main__':
 
-    build_codon_database(output_dir="/path/to/database_output")
+    #build_codon_database(output_dir="/path/to/database_output")
     my_screen_result: ScreenResult = run_screen(fasta_file=fastq, kraken_db="/dodo/dbs/PlasmidScreenMinimizers",
-                                                diamond_db="/dodo/dbs/uniref_march_2025_with_tax.dmnd",threads=60)
+                                                diamond_db="/dodo/dbs/uniref_march_2025_with_tax.dmnd")
     # Here is the found engineered reads
     print(my_screen_result.engineered_read_ids)
     # Here is the engineered reads based on kmer scanning

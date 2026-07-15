@@ -15,16 +15,20 @@ from plasmidScreen.src.codon_usage.codon_usage_db import (
 )
 from plasmidScreen.lib.models import (
     BuildCodonReferenceResult,
+    ReferenceHit,
     ScreenResult,
 )
 from plasmidScreen.lib.types import GeneSet
 from plasmidScreen.src.plasmidScreen import Workflow
+from plasmidScreen.src.post_hit_analysis import post_analysis_report
 
 __all__ = [
     "build_codon_database",
     "run_screen",
     "ScreenResult",
-    "BuildCodonReferenceResult"
+    "BuildCodonReferenceResult",
+    "ReferenceHit",
+    "post_analysis_report",
 ]
 
 
@@ -47,6 +51,14 @@ def run_screen(
     diamond_output_path: str | Path | None = None,
     debug_write_diamond_output: bool = False,
     run_diamond: bool = True,
+    filter_hits: bool = False,
+    reference_db: str | Path | None = None,
+    reference_top_n: int = 5,
+    reference_max_evalue: float = 1e-5,
+    reference_min_identity: float = 0.0,
+    reference_min_bitscore: float | None = None,
+    reference_database_source: str | None = None,
+    reference_diamond_output_path: str | Path | None = None,
 ) -> ScreenResult:
     """
     Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
@@ -54,6 +66,10 @@ def run_screen(
     Engineered detection uses Kraken2 minimizer blocks (taxid 32630) in a sliding window.
     Codon CAI runs on reads labeled **Natural** only, using DIAMOND blastx for ORF coordinates
     and host taxids, then pre-built codon usage tables for CAI.
+
+    When ``run_reference_search=True``, screened reads are batch-queried against a
+    reference ``.dmnd`` database and top significant hits are attached as
+    ``ScreenResult.database_hits`` / per-read ``ReadFlagDetail.database_hits``.
 
     Parameters
     ----------
@@ -92,10 +108,6 @@ def run_screen(
     diamond_db
         DIAMOND protein database (``.dmnd``). Required when ``run_codon_usage=True`` and
         ``run_diamond=True``.
-    diamond_threads
-        threads to be explicitly passed to diamond, this overwrites the thread specified above for runs.
-    diamond_extra_args
-        extra arguments needed for diamond if needed
     diamond_output_path
         Save or load DIAMOND outfmt 6 TSV (for ``debug_write_diamond_output`` or
         ``run_diamond=False``).
@@ -103,13 +115,29 @@ def run_screen(
         Persist DIAMOND alignments to ``diamond_output_path``.
     run_diamond
         Run DIAMOND blastx; if False, load precomputed TSV from ``diamond_output_path``.
+    filter_hits
+        After screening, query a reference database and attach best hits for provenance.
+    reference_db
+        DIAMOND ``.dmnd`` used for reference lookup (defaults to ``diamond_db``).
+    reference_top_n
+        Maximum significant hits retained per query sequence.
+    reference_max_evalue
+        Maximum E-value for a hit to be considered significant.
+    reference_min_identity
+        Minimum percent identity (0–100) for retained hits.
+    reference_min_bitscore
+        Optional minimum bit-score threshold.
+    reference_database_source
+        Human-readable database name/version stored on each :class:`ReferenceHit`.
+    reference_diamond_output_path
+        Save/load DIAMOND TSV for the reference-search step.
 
     Returns
     -------
     ScreenResult
         Includes ``per_read`` with ``engineered_overall`` / ``overall_label`` per read,
-        run-level ``overall_synthetic_count`` / ``engineered_read_ids``, and stored
-        threshold values used for the combined decision.
+        optional ``database_hits`` from reference search, and stored threshold values
+        used for the combined decision.
     """
     if run_codon_usage:
         if run_diamond and diamond_db is None:
@@ -124,6 +152,19 @@ def run_screen(
             raise ValueError(
                 "diamond_output_path is required when debug_write_diamond_output=True."
             )
+    if filter_hits:
+        resolved_ref_db = reference_db or diamond_db
+        if resolved_ref_db is None:
+            raise ValueError(
+                "reference_db (or diamond_db) is required when "
+                "run_reference_search=True and run_reference_diamond=True."
+            )
+        if reference_diamond_output_path is None:
+            raise ValueError(
+                "reference_diamond_output_path is required when "
+                "run_reference_diamond=False."
+            )
+
     workflow = Workflow(
         str(fasta_file),
         str(engineered_report_path) if engineered_report_path else None,
@@ -143,7 +184,18 @@ def run_screen(
         diamond_output_path=str(diamond_output_path) if diamond_output_path else None,
         debug_write_diamond_output=debug_write_diamond_output,
         run_diamond=run_diamond,
+        run_reference_search=filter_hits,
+        reference_db=str(reference_db) if reference_db else None,
+        reference_top_n=reference_top_n,
+        reference_max_evalue=reference_max_evalue,
+        reference_min_identity=reference_min_identity,
+        reference_min_bitscore=reference_min_bitscore,
+        reference_database_source=reference_database_source,
+        reference_diamond_output_path=(
+            str(reference_diamond_output_path) if reference_diamond_output_path else None
+        ),
     )
+
     return workflow.run()
 
 

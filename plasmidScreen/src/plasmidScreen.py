@@ -33,6 +33,12 @@ from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
     parse_kraken_lines,
 )
+from plasmidScreen.lib.db_search import (
+    DiamondReferenceSearchEngine,
+    HitFilterConfig,
+    ReferenceSearchConfig,
+    enrich_screen_result_with_engine,
+)
 
 
 @jit(nopython=True)
@@ -98,6 +104,7 @@ class Workflow:
 
     Kraken output is held in memory by default. Codon analysis uses DIAMOND blastx for
     ORF intervals and host taxids, restricted to reads labeled Natural by the k-mer scan.
+    Optional ``run_reference_search`` appends best DIAMOND reference hits for provenance.
     """
 
     def __init__(
@@ -121,6 +128,15 @@ class Workflow:
             diamond_output_path: str | Path | None = None,
             debug_write_diamond_output: bool = False,
             run_diamond: bool = True,
+            run_reference_search: bool = False,
+            reference_db: str | Path | None = None,
+            reference_top_n: int = 5,
+            reference_max_evalue: float = 1e-5,
+            reference_min_identity: float = 0.0,
+            reference_min_bitscore: float | None = None,
+            reference_database_source: str | None = None,
+            reference_diamond_output_path: str | Path | None = None,
+            run_reference_diamond: bool = True,
     ) -> None:
         self.fasta_file = Path(fasta_file)
         self.report_output_path = (
@@ -152,6 +168,19 @@ class Workflow:
         self.debug_write_diamond_output = debug_write_diamond_output
         self.run_diamond_enabled = run_diamond
         self._diamond_output_saved = None
+        self.run_reference_search = run_reference_search
+        self.reference_db = Path(reference_db) if reference_db else None
+        self.reference_top_n = reference_top_n
+        self.reference_max_evalue = reference_max_evalue
+        self.reference_min_identity = reference_min_identity
+        self.reference_min_bitscore = reference_min_bitscore
+        self.reference_database_source = reference_database_source
+        self.reference_diamond_output_path = (
+            Path(reference_diamond_output_path)
+            if reference_diamond_output_path
+            else None
+        )
+        self.run_reference_diamond = run_reference_diamond
 
     def _ensure_kraken_in_memory(self) -> None:
         if self._kraken_lines is not None and self._kraken_data is not None:
@@ -397,14 +426,7 @@ class Workflow:
                 len(engineered_scan.natural_read_ids),
                 self.codon_usage_dir,
             )
-            codon_results: CodonAdaptationResult  = self.run_codon_adaptation(engineered_scan.natural_read_ids)
-          #  if self.codon_usage_output_path is not None:
-          #      codon_path_str = write_codon_adaptation_results_tsv(
-          #          self.codon_usage_output_path,
-          #          codon_results,
-          #          cai_engineered_threshold=self.codon_cai_engineered_threshold,
-          #      )
-          #      codon_path = Path(codon_path_str)
+            codon_results: CodonAdaptationResult = self.run_codon_adaptation(engineered_scan.natural_read_ids)
         codon_by_read: dict[str, CodonAdaptationRead] | None = None
         if codon_results is not None:
             codon_by_read = {
@@ -428,7 +450,7 @@ class Workflow:
             if codon_by_read is not None:
                 codon = codon_by_read.get(lbl.read_id)
             else:
-                codon =None
+                codon = None
             cai = codon.cai_vs_host if codon else None
             engineered_by_codon: bool | None = None
             if cai is not None and self.codon_cai_engineered_threshold is not None:
@@ -462,7 +484,7 @@ class Workflow:
         if self.report_output_path is not None:
             self.write_screen_result(per_read)
 
-        return ScreenResult(
+        result = ScreenResult(
             engineered_scan=engineered_scan,
             codon_adaptation=codon_results,
             per_read=per_read,
@@ -473,3 +495,46 @@ class Workflow:
             engineered_kmer_window_size=self.window_size,
             codon_cai_engineered_threshold=self.codon_cai_engineered_threshold,
         )
+
+        if self.run_reference_search:
+            result = self._enrich_with_reference_hits(result)
+        return result
+
+    def _enrich_with_reference_hits(self, result: ScreenResult) -> ScreenResult:
+        """Join batch DIAMOND reference hits onto a finished ScreenResult."""
+        ref_db = self.reference_db or self.diamond_db
+        if ref_db is None and self.run_reference_diamond:
+            raise ValueError(
+                "reference_db (or diamond_db) is required when "
+                "run_reference_search=True and run_reference_diamond=True."
+            )
+        if not self.run_reference_diamond and self.reference_diamond_output_path is None:
+            raise ValueError(
+                "reference_diamond_output_path is required when "
+                "run_reference_diamond=False."
+            )
+
+        # Path is required by ReferenceSearchConfig even when loading a TSV only.
+        db_path = ref_db if ref_db is not None else Path(".")
+        config = ReferenceSearchConfig(
+            diamond_db=db_path,
+            database_source=self.reference_database_source,
+            threads=self.max_threads,
+            filters=HitFilterConfig(
+                top_n=self.reference_top_n,
+                max_evalue=self.reference_max_evalue,
+                min_identity=self.reference_min_identity,
+                min_bitscore=self.reference_min_bitscore,
+            ),
+            output_path=self.reference_diamond_output_path,
+            run_diamond=self.run_reference_diamond,
+        )
+        engine = DiamondReferenceSearchEngine(config)
+        logging.info(
+            "Running reference database lookup for %d screened reads "
+            "(top_n=%d, max_evalue=%s)",
+            len(result.per_read),
+            self.reference_top_n,
+            self.reference_max_evalue,
+        )
+        return enrich_screen_result_with_engine(result, engine, self.fasta_file)

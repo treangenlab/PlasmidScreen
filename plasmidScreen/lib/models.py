@@ -3,7 +3,68 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
+
+# Provenance tag when a queried sequence has no significant reference hits.
+NO_DATABASE_MATCH_NOTE = "No database match found"
+
+
+@dataclass(frozen=True)
+class ReferenceHit:
+    """
+    A single verified hit from a reference sequence database search.
+
+    ``match_score`` is backend-specific: for DIAMOND/BLAST it is typically the
+    bit-score (higher is better); for vector search it may be cosine similarity
+    or negative L2 distance. Alignment E-value and coverage details belong in
+    ``functional_metadata`` (and optional dedicated fields) for full provenance.
+
+    ``query_start`` / ``query_end`` are 0-based half-open coordinates on the
+    query so mosaic / multi-accession tiling can cover distinct query regions.
+    """
+
+    accession_id: str
+    database_source: str
+    match_score: float
+    sequence_identity: Optional[float] = None
+    functional_metadata: dict[str, Any] = field(default_factory=dict)
+    query_id: Optional[str] = None
+    evalue: Optional[float] = None
+    bitscore: Optional[float] = None
+    alignment_length: Optional[int] = None
+    query_start: Optional[int] = None
+    query_end: Optional[int] = None
+
+    @property
+    def query_span_bp(self) -> int:
+        """Aligned query bases (0 if coordinates are missing)."""
+        if self.query_start is None or self.query_end is None:
+            return 0
+        return max(0, self.query_end - self.query_start)
+
+
+@dataclass(frozen=True)
+class QueryMatchConfidence:
+    """
+    Aggregate confidence that a query is explained by its retained reference hits.
+
+    Inspired by PlasmidHawk CORRECT-mode uniqueness weighting: fragments
+    (hits) shared by many competing accessions contribute less. The published
+    PlasmidHawk analysis related uniqueness to scores via linear regression; we
+    mirror that strategy as a linear combination of coverage, identity, and
+    uniqueness features scaled to ``[0, 1]``.
+    """
+
+    confidence: float
+    query_coverage: float
+    covered_bp: int
+    query_length_bp: int
+    mean_identity: float
+    uniqueness: float
+    plasmidhawk_score: float
+    n_accessions: int
+    n_hits: int
+    features: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -93,6 +154,10 @@ class ScreenResult:
 
     Use ``per_read`` for per-read ``engineered_overall`` / ``overall_label`` and
     ``overall_synthetic_count`` for a run total that respects both k-mer and codon thresholds.
+
+    When reference search is enabled, ``database_hits`` holds a flat aggregation of
+    significant hits across all reads; per-read hits and match notes live on
+    :class:`ReadFlagDetail`.
     """
 
     engineered_scan: EngineeredScanResult
@@ -104,7 +169,8 @@ class ScreenResult:
     engineered_report_path: Optional[Path] = None
     codon_usage_report_path: Optional[Path] = None
     diamond_output_path: Optional[Path] = None
-
+    database_hits: list[ReferenceHit] = field(default_factory=list)
+    reference_database_source: Optional[str] = None
 
     @property
     def overall_engineered_read_count(self) -> int:
@@ -139,6 +205,11 @@ class ReadFlagDetail:
     cai_vs_host: Optional[float] = None
     engineered_by_codon_cai: Optional[bool] = None
     codon_cai_threshold: Optional[float] = None
+    database_hits: tuple[ReferenceHit, ...] = ()
+    database_match_note: Optional[str] = None
+    database_match_confidence: Optional[float] = None
+    database_query_coverage: Optional[float] = None
+    database_match_summary: Optional[QueryMatchConfidence] = None
 
     @property
     def engineered_methods(self) -> list[str]:
@@ -153,3 +224,8 @@ class ReadFlagDetail:
     def engineered_any(self) -> bool:
         """Alias for :attr:`engineered_overall` (combined threshold decision)."""
         return self.engineered_overall
+
+    @property
+    def has_database_match(self) -> bool:
+        """True when at least one significant reference hit was retained."""
+        return bool(self.database_hits)
