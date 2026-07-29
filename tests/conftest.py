@@ -6,10 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from plasmidScreen.src.codon_usage.codon_usage_db import CodonUsageStore
+from plasmidScreen.src.codon_usage.codon_usage_db import CodonUsageStore, CODON_TABLES_FILE
 from Bio.Data import CodonTable
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+# Small, commonly used CSDB taxids for real-archive integration tests.
+REAL_CSDB_TAXIDS = ("511145", "562", "9606")
 
 _CODON_TO_AA = CodonTable.unambiguous_dna_by_id[1].forward_table.copy()
 for _stop in ("TAA", "TAG", "TGA"):
@@ -100,3 +103,37 @@ def fixtures_kraken_out() -> Path:
 @pytest.fixture
 def fixtures_fasta() -> Path:
     return FIXTURES / "reads.fa"
+
+
+@pytest.fixture(scope="session")
+def real_csdb_archive() -> Path:
+    """Path to the downloaded CSDB March 2022 archive, or skip if absent."""
+    from plasmidScreen.src.codon_usage.codon_usage_sources import default_csdb_archive_path
+
+    path = default_csdb_archive_path()
+    if not path.is_file() or path.stat().st_size == 0:
+        pytest.skip(f"Real CSDB archive not found at {path}")
+    return path
+
+
+@pytest.fixture(scope="session")
+def real_csdb_build(tmp_path_factory: pytest.TempPathFactory, real_csdb_archive: Path):
+    """
+    One real ``build_codon_database`` call per session (tar extract is ~1 min).
+
+    Returns ``(output_dir, BuildCodonReferenceResult)``.
+    """
+    from plasmidScreen.api import build_codon_database
+    from plasmidScreen.lib.models import BuildCodonReferenceResult
+
+    output_dir = tmp_path_factory.mktemp("real_csdb_codon_usage")
+    result = build_codon_database(
+        output_dir=output_dir,
+        taxids=list(REAL_CSDB_TAXIDS),
+        csdb_archive=real_csdb_archive,
+        download_csdb=False,
+        gene_set="nuclear",
+    )
+    assert isinstance(result, BuildCodonReferenceResult)
+    assert (output_dir / CODON_TABLES_FILE).is_file()
+    return output_dir, result

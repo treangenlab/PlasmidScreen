@@ -27,15 +27,17 @@ from plasmidScreen.lib.models import (
     ReadFlagDetail,
     ReadEngineeringLabel,
     ScreenResult,
-    compute_engineered_overall, CodonAdaptationRead,
+    SupportDataTypes,
+    compute_engineered_overall,
+    CodonAdaptationRead,
 )
 from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
     parse_kraken_lines,
 )
 from plasmidScreen.lib.db_search import (
-    DiamondReferenceSearchEngine,
     HitFilterConfig,
+    MinimapReferenceSearchEngine,
     ReferenceSearchConfig,
     enrich_screen_result_with_engine,
 )
@@ -104,7 +106,8 @@ class Workflow:
 
     Kraken output is held in memory by default. Codon analysis uses DIAMOND blastx for
     ORF intervals and host taxids, restricted to reads labeled Natural by the k-mer scan.
-    Optional ``run_reference_search`` appends best DIAMOND reference hits for provenance.
+    Optional ``run_reference_search`` aligns engineered reads with minimap2 and appends
+    tiled best hits for provenance.
     """
 
     def __init__(
@@ -131,12 +134,13 @@ class Workflow:
             run_reference_search: bool = False,
             reference_db: str | Path | None = None,
             reference_top_n: int = 5,
-            reference_max_evalue: float = 1e-5,
             reference_min_identity: float = 0.0,
+            reference_min_mapq: int = 0,
             reference_min_bitscore: float | None = None,
             reference_database_source: str | None = None,
-            reference_diamond_output_path: str | Path | None = None,
-            run_reference_diamond: bool = True,
+            reference_output_path: str | Path | None = None,
+            run_reference_minimap: bool = True,
+            reference_data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT,
     ) -> None:
         self.fasta_file = Path(fasta_file)
         self.report_output_path = (
@@ -171,16 +175,15 @@ class Workflow:
         self.run_reference_search = run_reference_search
         self.reference_db = Path(reference_db) if reference_db else None
         self.reference_top_n = reference_top_n
-        self.reference_max_evalue = reference_max_evalue
         self.reference_min_identity = reference_min_identity
+        self.reference_min_mapq = reference_min_mapq
         self.reference_min_bitscore = reference_min_bitscore
         self.reference_database_source = reference_database_source
-        self.reference_diamond_output_path = (
-            Path(reference_diamond_output_path)
-            if reference_diamond_output_path
-            else None
+        self.reference_output_path = (
+            Path(reference_output_path) if reference_output_path else None
         )
-        self.run_reference_diamond = run_reference_diamond
+        self.run_reference_minimap = run_reference_minimap
+        self.reference_data_type = reference_data_type
 
     def _ensure_kraken_in_memory(self) -> None:
         if self._kraken_lines is not None and self._kraken_data is not None:
@@ -496,45 +499,44 @@ class Workflow:
             codon_cai_engineered_threshold=self.codon_cai_engineered_threshold,
         )
 
-        if self.run_reference_search:
+        if self.run_reference_minimap:
             result = self._enrich_with_reference_hits(result)
         return result
 
     def _enrich_with_reference_hits(self, result: ScreenResult) -> ScreenResult:
-        """Join batch DIAMOND reference hits onto a finished ScreenResult."""
-        ref_db = self.reference_db or self.diamond_db
-        if ref_db is None and self.run_reference_diamond:
+        """Align engineered reads with minimap2 and attach tiled best hits."""
+        if self.reference_db is None and self.run_reference_minimap:
             raise ValueError(
-                "reference_db (or diamond_db) is required when "
-                "run_reference_search=True and run_reference_diamond=True."
+                "reference_db (nucleotide FASTA or .mmi) is required when "
+                "run_reference_search=True and run_reference_minimap=True."
             )
-        if not self.run_reference_diamond and self.reference_diamond_output_path is None:
+        if not self.run_reference_minimap and self.reference_output_path is None:
             raise ValueError(
-                "reference_diamond_output_path is required when "
-                "run_reference_diamond=False."
+                "reference_output_path is required when run_reference_minimap=False."
             )
 
-        # Path is required by ReferenceSearchConfig even when loading a TSV only.
-        db_path = ref_db if ref_db is not None else Path(".")
+        db_path = self.reference_db if self.reference_db is not None else Path(".")
         config = ReferenceSearchConfig(
-            diamond_db=db_path,
+            reference_db=db_path,
             database_source=self.reference_database_source,
             threads=self.max_threads,
+            data_type=self.reference_data_type,
             filters=HitFilterConfig(
                 top_n=self.reference_top_n,
-                max_evalue=self.reference_max_evalue,
                 min_identity=self.reference_min_identity,
+                min_mapq=self.reference_min_mapq,
                 min_bitscore=self.reference_min_bitscore,
             ),
-            output_path=self.reference_diamond_output_path,
-            run_diamond=self.run_reference_diamond,
+            output_path=self.reference_output_path,
+            run_minimap=self.run_reference_minimap,
         )
-        engine = DiamondReferenceSearchEngine(config)
+        engine = MinimapReferenceSearchEngine(config)
         logging.info(
-            "Running reference database lookup for %d screened reads "
-            "(top_n=%d, max_evalue=%s)",
-            len(result.per_read),
+            "Running minimap2 reference lookup for %d engineered reads "
+            "(top_n=%d, min_identity=%s, preset=%s)",
+            len(result.engineered_read_ids),
             self.reference_top_n,
-            self.reference_max_evalue,
+            self.reference_min_identity,
+            self.reference_data_type.value,
         )
         return enrich_screen_result_with_engine(result, engine, self.fasta_file)

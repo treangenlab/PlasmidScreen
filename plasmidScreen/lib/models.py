@@ -1,12 +1,21 @@
 """Structured results returned by the PlasmidScreen library API."""
 from __future__ import annotations
-
+from enum import Enum
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 # Provenance tag when a queried sequence has no significant reference hits.
 NO_DATABASE_MATCH_NOTE = "No database match found"
+
+
+class SupportDataTypes(Enum):
+    """minimap2 ``-x`` presets for reference search on engineered reads."""
+
+    LONG_READ_ONT = "map-ont"
+    LONG_READ_PB = "map-pb"
+    SHORT_READ = "sr"
+    ASM = "asm5"
 
 
 @dataclass(frozen=True)
@@ -34,6 +43,7 @@ class ReferenceHit:
     alignment_length: Optional[int] = None
     query_start: Optional[int] = None
     query_end: Optional[int] = None
+    mapq: Optional[int] = None
 
     @property
     def query_span_bp(self) -> int:
@@ -70,6 +80,7 @@ class QueryMatchConfidence:
 @dataclass
 class CodonAdaptationResult:
     labels: list[CodonAdaptationRead] | None = field(default=list)
+
     @property
     def natural_read_ids(self) -> set[str]:
         return {r.read_id for r in self.labels if r.label == "Natural"}

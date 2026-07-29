@@ -18,6 +18,7 @@ from plasmidScreen.lib.models import (
     ReadFlagDetail,
     ReferenceHit,
     ScreenResult,
+    SupportDataTypes,
     compute_engineered_overall,
 )
 
@@ -35,6 +36,7 @@ __all__ = [
     "ReadFlagDetail",
     "ReferenceHit",
     "ScreenResult",
+    "SupportDataTypes",
     "compute_engineered_overall",
     "build_codon_reference",
     "analyze_codon_adaptation"
