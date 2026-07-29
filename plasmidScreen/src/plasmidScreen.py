@@ -121,6 +121,7 @@ class Workflow:
             diamond_output_path: str | Path | None = None,
             debug_write_diamond_output: bool = False,
             run_diamond: bool = True,
+            quiet_mode: bool = False
     ) -> None:
         self.fasta_file = Path(fasta_file)
         self.report_output_path = (
@@ -152,6 +153,7 @@ class Workflow:
         self.debug_write_diamond_output = debug_write_diamond_output
         self.run_diamond_enabled = run_diamond
         self._diamond_output_saved = None
+        self.quiet_mode = quiet_mode
 
     def _ensure_kraken_in_memory(self) -> None:
         if self._kraken_lines is not None and self._kraken_data is not None:
@@ -300,27 +302,37 @@ class Workflow:
 
         return False, max_eng_seen
 
+    def entry_logic(self, entry: str, kmer_max_by_read, result):
+        """
+
+        """
+        categories = entry.split("\t")
+        if len(categories) < 2:
+            return None
+        synthetic_boolean, max_eng = self.parse_and_run(
+            categories[-1], self.window_size, self.threshold
+        )
+        read_id = categories[1]
+        kmer_max_by_read[read_id] = max_eng
+        if synthetic_boolean:
+            result.synthetic_count += 1
+            label = "Synthetic"
+        else:
+            result.natural_count += 1
+            label = "Natural"
+        result.labels.append(ReadEngineeringLabel(read_id=read_id, label=label))
+
     def scan_engineered_blocks_kraken(self) -> EngineeredScanResult:
         result = EngineeredScanResult()
         self._ensure_kraken_in_memory()
         kmer_max_by_read: dict[str, int] = {}
         entries = self._kraken_lines
-        for entry in tqdm(entries, total=len(entries)):
-            categories = entry.split("\t")
-            if len(categories) < 2:
-                continue
-            synthetic_boolean, max_eng = self.parse_and_run(
-                categories[-1], self.window_size, self.threshold
-            )
-            read_id = categories[1]
-            kmer_max_by_read[read_id] = max_eng
-            if synthetic_boolean:
-                result.synthetic_count += 1
-                label = "Synthetic"
-            else:
-                result.natural_count += 1
-                label = "Natural"
-            result.labels.append(ReadEngineeringLabel(read_id=read_id, label=label))
+        if not self.quiet_mode:
+            for entry in tqdm(entries, total=len(entries)):
+                self.entry_logic(entry, kmer_max_by_read, result)
+        else:
+            for entry in entries:
+                self.entry_logic(entry, kmer_max_by_read, result)
         logging.info(
             "Engineered k-mer scan complete: %s/%s synthetic reads.",
             result.synthetic_count,

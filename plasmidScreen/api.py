@@ -47,6 +47,7 @@ def run_screen(
     diamond_output_path: str | Path | None = None,
     debug_write_diamond_output: bool = False,
     run_diamond: bool = True,
+    quiet_mode:bool = True
 ) -> ScreenResult:
     """
     Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
@@ -92,10 +93,6 @@ def run_screen(
     diamond_db
         DIAMOND protein database (``.dmnd``). Required when ``run_codon_usage=True`` and
         ``run_diamond=True``.
-    diamond_threads
-        threads to be explicitly passed to diamond, this overwrites the thread specified above for runs.
-    diamond_extra_args
-        extra arguments needed for diamond if needed
     diamond_output_path
         Save or load DIAMOND outfmt 6 TSV (for ``debug_write_diamond_output`` or
         ``run_diamond=False``).
@@ -103,6 +100,8 @@ def run_screen(
         Persist DIAMOND alignments to ``diamond_output_path``.
     run_diamond
         Run DIAMOND blastx; if False, load precomputed TSV from ``diamond_output_path``.
+    quiet_mode
+        Forces the STDOUT to be suppressed
 
     Returns
     -------
@@ -143,6 +142,7 @@ def run_screen(
         diamond_output_path=str(diamond_output_path) if diamond_output_path else None,
         debug_write_diamond_output=debug_write_diamond_output,
         run_diamond=run_diamond,
+        quiet_mode=quiet_mode
     )
     return workflow.run()
 
