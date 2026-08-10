@@ -11,6 +11,10 @@ from plasmidScreen.api import run_screen
 from pathlib import Path
 from plasmidScreen.src.codon_usage.codon_usage_build import build_codon_reference
 from plasmidScreen.lib.types import GeneSet
+from plasmidScreen.lib.models import (
+    SupportDataTypes,
+)
+
 
 FORMAT = "%(message)s"
 logging.basicConfig(level=logging.INFO, format=FORMAT, datefmt="[%X]", handlers=[RichHandler()])
@@ -64,6 +68,21 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
            run_diamond: Annotated[bool, typer.Option("--run-diamond/--no-run-diamond",
                                                      help="Run DIAMOND blastx (default). If disabled, "
                                                           "--diamond-output-path must exist.")] = True,
+           reference_db: Annotated[str | None, typer.Option("--reference-db", help="Minimap2 database for "
+                                                                                   "mapping of engineered hits")] = None,
+           map_hits: Annotated[bool, typer.Option("--map-hits", help="Run Minimap2 to map hits")] = False,
+           reference_output: Annotated[str | None, typer.Option("--reference-output",
+                                                                help="Minimap2 output for mapping of "
+                                                                     "engineered hits")] = None,
+           reference_data_type: Annotated[str | None, typer.Option("--data-type",
+                                                                   help="Type of reads/sequences, select from: "
+                                                                        "map-ont,map-pb, sr, asm5")]
+           = SupportDataTypes.LONG_READ_ONT.value,
+           reference_top_n: Annotated[int | None, typer.Option("--top-n", help="Top N to select from Minimap2 "
+                                                                               "hits")] = 5,
+           reference_min_bitscore: Annotated[float | None, typer.Option("--min-bit-score",
+                                                                        help="Minimum bitscore")] = 0.0,
+
            skip_codon_usage: Annotated[bool, typer.Option("--skip-codon-usage",
                                                           help="Skip codon adaptation/CAI analysis "
                                                                "(engineered k-mer scan only).")] = False,
@@ -98,6 +117,11 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
             raise typer.BadParameter(
                 "--diamond-output-path is required when --debug-write-diamond-out is set"
             )
+    if map_hits:
+        if reference_db is None:
+            raise typer.BadParameter("--reference-db is required when --map-hits is True")
+        if reference_output is None:
+            raise typer.BadParameter("--reference_output is required when --map-hits is True")
     run_screen(
         fasta_file,
         kraken_db_path,
@@ -117,6 +141,11 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
         diamond_output_path=diamond_output_path,
         debug_write_diamond_output=debug_write_diamond_out,
         run_diamond=run_diamond,
+        reference_db=reference_db,
+        reference_top_n=reference_top_n,
+        reference_min_bitscore=reference_min_bitscore,
+        reference_output_path=reference_output,
+        run_reference_minimap=map_hits
         visualize=visualize
     )
 

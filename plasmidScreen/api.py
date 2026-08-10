@@ -15,16 +15,22 @@ from plasmidScreen.src.codon_usage.codon_usage_db import (
 )
 from plasmidScreen.lib.models import (
     BuildCodonReferenceResult,
+    ReferenceHit,
     ScreenResult,
+    SupportDataTypes,
 )
 from plasmidScreen.lib.types import GeneSet
 from plasmidScreen.src.plasmidScreen import Workflow
+from plasmidScreen.src.post_hit_analysis import post_analysis_report
 
 __all__ = [
     "build_codon_database",
     "run_screen",
     "ScreenResult",
-    "BuildCodonReferenceResult"
+    "BuildCodonReferenceResult",
+    "ReferenceHit",
+    "SupportDataTypes",
+    "post_analysis_report",
 ]
 
 
@@ -47,6 +53,16 @@ def run_screen(
     diamond_output_path: str | Path | None = None,
     debug_write_diamond_output: bool = False,
     run_diamond: bool = True,
+    filter_hits: bool = False,
+    reference_db: str | Path | None = None,
+    reference_top_n: int = 5,
+    reference_min_identity: float = 0.0,
+    reference_min_mapq: int = 0,
+    reference_min_bitscore: float | None = None,
+    reference_database_source: str | None = None,
+    reference_output_path: str | Path | None = None,
+    run_reference_minimap: bool = True,
+    reference_data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT,
     quiet_mode:bool = True,
     visualize: bool = False
 ) -> ScreenResult:
@@ -56,6 +72,10 @@ def run_screen(
     Engineered detection uses Kraken2 minimizer blocks (taxid 32630) in a sliding window.
     Codon CAI runs on reads labeled **Natural** only, using DIAMOND blastx for ORF coordinates
     and host taxids, then pre-built codon usage tables for CAI.
+
+    When ``filter_hits=True``, **engineered** reads are aligned with minimap2 against a
+    nucleotide reference (FASTA or ``.mmi``) and top tiled hits are attached as
+    ``ScreenResult.database_hits`` / per-read ``ReadFlagDetail.database_hits``.
 
     Parameters
     ----------
@@ -69,8 +89,7 @@ def run_screen(
         Save or load raw Kraken2 classifications (required when ``run_kraken=False`` or
         when ``debug_write_kraken_output=True``).
     threads
-        Number of threads to be used for the tool for engineered k-mer scanning to codon optimization,
-        unless specific thread counts are given to diamond
+        Threads for Kraken / DIAMOND / minimap2 unless overridden elsewhere.
     run_kraken
         Run Kraken2 in-process; if False, ``kraken_output_path`` must point to existing output.
     debug_write_kraken_report
@@ -86,30 +105,45 @@ def run_screen(
     codon_cai_engineered_threshold
         If set, reads with CAI below this value get ``engineered_by_codon_cai=True`` and
         may be marked ``engineered_overall=True`` on :class:`~plasmidScreen.lib.models.ReadFlagDetail`
-        even when the k-mer scan labeled them Natural. Also adds columns to the codon TSV when written.
+        even when the k-mer scan labeled them Natural.
     engineered_kmer_threshold
         Min engineered (32630) k-mers in a window to label a read Synthetic by k-mer scan.
     window_size
         Sliding window size (bp) for the k-mer scan.
     diamond_db
-        DIAMOND protein database (``.dmnd``). Required when ``run_codon_usage=True`` and
-        ``run_diamond=True``.
+        DIAMOND protein database (``.dmnd``) for codon CAI only.
     diamond_output_path
-        Save or load DIAMOND outfmt 6 TSV (for ``debug_write_diamond_output`` or
-        ``run_diamond=False``).
+        Save or load DIAMOND outfmt 6 TSV for codon CAI.
     debug_write_diamond_output
         Persist DIAMOND alignments to ``diamond_output_path``.
     run_diamond
-        Run DIAMOND blastx; if False, load precomputed TSV from ``diamond_output_path``.
-    quiet_mode
-        Forces the STDOUT to be suppressed
+        Run DIAMOND blastx for codon CAI; if False, load precomputed TSV.
+    filter_hits
+        After screening, minimap2-align engineered reads and attach best hits.
+    reference_db
+        Nucleotide FASTA or minimap2 ``.mmi`` index for engineered-read lookup.
+    reference_top_n
+        Maximum significant hits retained per engineered query.
+    reference_min_identity
+        Minimum percent identity (0–100) for retained hits.
+    reference_min_mapq
+        Minimum minimap2 mapping quality.
+    reference_min_bitscore
+        Optional minimum match-score threshold (for minimap2: matching bases).
+    reference_database_source
+        Human-readable database name/version stored on each :class:`ReferenceHit`.
+    reference_output_path
+        Save/load minimap2 PAF for the reference-search step.
+    run_reference_minimap
+        Run minimap2; if False, load precomputed PAF from ``reference_output_path``.
+    reference_data_type
+        minimap2 ``-x`` preset (:class:`~plasmidScreen.lib.models.SupportDataTypes`).
 
     Returns
     -------
     ScreenResult
         Includes ``per_read`` with ``engineered_overall`` / ``overall_label`` per read,
-        run-level ``overall_synthetic_count`` / ``engineered_read_ids``, and stored
-        threshold values used for the combined decision.
+        optional ``database_hits`` from minimap2 reference search, and stored thresholds.
     """
     if run_codon_usage:
         if run_diamond and diamond_db is None:
@@ -124,6 +158,17 @@ def run_screen(
             raise ValueError(
                 "diamond_output_path is required when debug_write_diamond_output=True."
             )
+    if filter_hits:
+        if run_reference_minimap and reference_db is None:
+            raise ValueError(
+                "reference_db (FASTA or .mmi) is required when "
+                "filter_hits=True and run_reference_minimap=True."
+            )
+        if not run_reference_minimap and reference_output_path is None:
+            raise ValueError(
+                "reference_output_path is required when run_reference_minimap=False."
+            )
+
     workflow = Workflow(
         str(fasta_file),
         str(engineered_report_path) if engineered_report_path else None,
@@ -143,7 +188,18 @@ def run_screen(
         diamond_output_path=str(diamond_output_path) if diamond_output_path else None,
         debug_write_diamond_output=debug_write_diamond_output,
         run_diamond=run_diamond,
-        quiet_mode=quiet_mode
+        run_reference_search=filter_hits,
+        reference_db=str(reference_db) if reference_db else None,
+        reference_top_n=reference_top_n,
+        reference_min_identity=reference_min_identity,
+        reference_min_mapq=reference_min_mapq,
+        reference_min_bitscore=reference_min_bitscore,
+        reference_database_source=reference_database_source,
+        reference_output_path=(
+            str(reference_output_path) if reference_output_path else None
+        ),
+        run_reference_minimap=run_reference_minimap,
+        reference_data_type=reference_data_type,
     )
     screen_results = workflow.run()
     if visualize:

@@ -27,11 +27,19 @@ from plasmidScreen.lib.models import (
     ReadFlagDetail,
     ReadEngineeringLabel,
     ScreenResult,
-    compute_engineered_overall, CodonAdaptationRead,
+    SupportDataTypes,
+    compute_engineered_overall,
+    CodonAdaptationRead,
 )
 from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
     parse_kraken_lines,
+)
+from plasmidScreen.lib.db_search import (
+    HitFilterConfig,
+    MinimapReferenceSearchEngine,
+    ReferenceSearchConfig,
+    enrich_screen_result_with_engine,
 )
 
 
@@ -98,6 +106,8 @@ class Workflow:
 
     Kraken output is held in memory by default. Codon analysis uses DIAMOND blastx for
     ORF intervals and host taxids, restricted to reads labeled Natural by the k-mer scan.
+    Optional ``run_reference_search`` aligns engineered reads with minimap2 and appends
+    tiled best hits for provenance.
     """
 
     def __init__(
@@ -121,6 +131,16 @@ class Workflow:
             diamond_output_path: str | Path | None = None,
             debug_write_diamond_output: bool = False,
             run_diamond: bool = True,
+            run_reference_search: bool = False,
+            reference_db: str | Path | None = None,
+            reference_top_n: int = 5,
+            reference_min_identity: float = 0.0,
+            reference_min_mapq: int = 0,
+            reference_min_bitscore: float | None = None,
+            reference_database_source: str | None = None,
+            reference_output_path: str | Path | None = None,
+            run_reference_minimap: bool = True,
+            reference_data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT,
             quiet_mode: bool = False
     ) -> None:
         self.fasta_file = Path(fasta_file)
@@ -153,6 +173,18 @@ class Workflow:
         self.debug_write_diamond_output = debug_write_diamond_output
         self.run_diamond_enabled = run_diamond
         self._diamond_output_saved = None
+        self.run_reference_search = run_reference_search
+        self.reference_db = Path(reference_db) if reference_db else None
+        self.reference_top_n = reference_top_n
+        self.reference_min_identity = reference_min_identity
+        self.reference_min_mapq = reference_min_mapq
+        self.reference_min_bitscore = reference_min_bitscore
+        self.reference_database_source = reference_database_source
+        self.reference_output_path = (
+            Path(reference_output_path) if reference_output_path else None
+        )
+        self.run_reference_minimap = run_reference_minimap
+        self.reference_data_type = reference_data_type
         self.quiet_mode = quiet_mode
 
     def _ensure_kraken_in_memory(self) -> None:
@@ -409,14 +441,7 @@ class Workflow:
                 len(engineered_scan.natural_read_ids),
                 self.codon_usage_dir,
             )
-            codon_results: CodonAdaptationResult  = self.run_codon_adaptation(engineered_scan.natural_read_ids)
-          #  if self.codon_usage_output_path is not None:
-          #      codon_path_str = write_codon_adaptation_results_tsv(
-          #          self.codon_usage_output_path,
-          #          codon_results,
-          #          cai_engineered_threshold=self.codon_cai_engineered_threshold,
-          #      )
-          #      codon_path = Path(codon_path_str)
+            codon_results: CodonAdaptationResult = self.run_codon_adaptation(engineered_scan.natural_read_ids)
         codon_by_read: dict[str, CodonAdaptationRead] | None = None
         if codon_results is not None:
             codon_by_read = {
@@ -440,7 +465,7 @@ class Workflow:
             if codon_by_read is not None:
                 codon = codon_by_read.get(lbl.read_id)
             else:
-                codon =None
+                codon = None
             cai = codon.cai_vs_host if codon else None
             engineered_by_codon: bool | None = None
             if cai is not None and self.codon_cai_engineered_threshold is not None:
@@ -474,7 +499,7 @@ class Workflow:
         if self.report_output_path is not None:
             self.write_screen_result(per_read)
 
-        return ScreenResult(
+        result = ScreenResult(
             engineered_scan=engineered_scan,
             codon_adaptation=codon_results,
             per_read=per_read,
@@ -486,4 +511,45 @@ class Workflow:
             codon_cai_engineered_threshold=self.codon_cai_engineered_threshold,
         )
 
+        if self.run_reference_minimap:
+            result = self._enrich_with_reference_hits(result)
+        return result
+
+    def _enrich_with_reference_hits(self, result: ScreenResult) -> ScreenResult:
+        """Align engineered reads with minimap2 and attach tiled best hits."""
+        if self.reference_db is None and self.run_reference_minimap:
+            raise ValueError(
+                "reference_db (nucleotide FASTA or .mmi) is required when "
+                "run_reference_search=True and run_reference_minimap=True."
+            )
+        if not self.run_reference_minimap and self.reference_output_path is None:
+            raise ValueError(
+                "reference_output_path is required when run_reference_minimap=False."
+            )
+
+        db_path = self.reference_db if self.reference_db is not None else Path(".")
+        config = ReferenceSearchConfig(
+            reference_db=db_path,
+            database_source=self.reference_database_source,
+            threads=self.max_threads,
+            data_type=self.reference_data_type,
+            filters=HitFilterConfig(
+                top_n=self.reference_top_n,
+                min_identity=self.reference_min_identity,
+                min_mapq=self.reference_min_mapq,
+                min_bitscore=self.reference_min_bitscore,
+            ),
+            output_path=self.reference_output_path,
+            run_minimap=self.run_reference_minimap,
+        )
+        engine = MinimapReferenceSearchEngine(config)
+        logging.info(
+            "Running minimap2 reference lookup for %d engineered reads "
+            "(top_n=%d, min_identity=%s, preset=%s)",
+            len(result.engineered_read_ids),
+            self.reference_top_n,
+            self.reference_min_identity,
+            self.reference_data_type.value,
+        )
+        return enrich_screen_result_with_engine(result, engine, self.fasta_file)
 def visualization_routine(self, screen_result):
