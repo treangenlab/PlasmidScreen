@@ -485,3 +485,5 @@ class Workflow:
             engineered_kmer_window_size=self.window_size,
             codon_cai_engineered_threshold=self.codon_cai_engineered_threshold,
         )
+
+def visualization_routine(self, screen_result):

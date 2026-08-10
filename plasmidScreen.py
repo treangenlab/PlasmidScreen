@@ -12,7 +12,6 @@ from pathlib import Path
 from plasmidScreen.src.codon_usage.codon_usage_build import build_codon_reference
 from plasmidScreen.lib.types import GeneSet
 
-
 FORMAT = "%(message)s"
 logging.basicConfig(level=logging.INFO, format=FORMAT, datefmt="[%X]", handlers=[RichHandler()])
 app = typer.Typer(
@@ -79,6 +78,8 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
                                                          "existing classifications file.")] = True,
            kraken_db_path: Annotated[str, typer.Argument(help="Kraken2 database path")] = DEFAULT_DB_PATH,
            threads: Annotated[int, typer.Option("--threads", help="Available threads to use.")] = 4,
+           visualize: Annotated[bool, typer.Option("--visualize/--no-visualize",
+                                                   help="run visualization routine")] = False
            ) -> None:
     if not run_kraken and not kraken_output_path:
         raise typer.BadParameter("--kraken-output-path is required when --no-run-kraken is set")
@@ -116,6 +117,7 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
         diamond_output_path=diamond_output_path,
         debug_write_diamond_output=debug_write_diamond_out,
         run_diamond=run_diamond,
+        visualize=visualize
     )
 
 

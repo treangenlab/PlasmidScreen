@@ -47,7 +47,8 @@ def run_screen(
     diamond_output_path: str | Path | None = None,
     debug_write_diamond_output: bool = False,
     run_diamond: bool = True,
-    quiet_mode:bool = True
+    quiet_mode:bool = True,
+    visualize: bool = False
 ) -> ScreenResult:
     """
     Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
@@ -144,7 +145,10 @@ def run_screen(
         run_diamond=run_diamond,
         quiet_mode=quiet_mode
     )
-    return workflow.run()
+    screen_results = workflow.run()
+    if visualize:
+        run_visualization_routine(screen_results)
+    return screen_results
 
 
 def build_codon_database(
