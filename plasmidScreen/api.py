@@ -63,6 +63,8 @@ def run_screen(
     reference_output_path: str | Path | None = None,
     run_reference_minimap: bool = True,
     reference_data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT,
+    quiet_mode:bool = True,
+    visualize: bool = False
 ) -> ScreenResult:
     """
     Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
@@ -199,8 +201,10 @@ def run_screen(
         run_reference_minimap=run_reference_minimap,
         reference_data_type=reference_data_type,
     )
-
-    return workflow.run()
+    screen_results = workflow.run()
+    if visualize:
+        run_visualization_routine(screen_results)
+    return screen_results
 
 
 def build_codon_database(
