@@ -18,7 +18,9 @@ PlasmidScreen detects engineered DNA in sequencing reads using a **Kraken2 minim
 
 ### Overall engineered decision (`run_screen` / `ScreenResult`)
 
-Each read in `screen_result.per_read` gets a single **`engineered_overall`** flag and **`overall_label`** (`Natural` or `Synthetic`) from the thresholds you pass to `run_screen` which can be a result from the two components K-mer scan, and Codon CAI which each are optionally ran. If either are found to contain engineering, `ScreenResult` object will report engineering.
+Each read in `screen_result.per_read` gets an **`overall_label`** (`Natural` or `Synthetic`) from the thresholds you 
+pass to `run_screen` which can be a result from the two components K-mer scan, and Codon CAI which each are optionally 
+ran. If either are found to contain engineering, `ScreenResult` object will report engineering.
 
 | Signal | Parameter | Counts toward overall engineered when |
 |--------|-----------|----------------------------------------|
@@ -48,7 +50,7 @@ build_codon_database(output_dir="/path/to/codon_usage_db")
 # Full pipeline: Kraken engineered scan + codon optimization detection on Natural reads
 screen_result = run_screen(
     "reads.fa",
-    kraken_db="/path/to/kraken/db",
+    kraken_db="/path/to/kraken/db", # Needed for Kraken2
     diamond_db="/path/to/protein.dmnd",
     codon_usage_dir="/path/to/codon_usage_db",
     engineered_report_path="engineered_report.txt",  # omit for in-memory results only
@@ -88,9 +90,29 @@ python plasmidScreen.py build \
   --no-download-csdb
 
 ```
-
 The archive is cached under `~/.local/share/PlasmidScreen/` unless `--csdb-archive` is set.
-Output: `codon_usage/codon_tables.json` and optionally `taxonomy_parents.json`.
+Output: `codon_usage/codon_tables.json` and `taxonomy_parents.json`.
+
+
+
+
+
+### Requirements
+
+#### Installation
+```bash
+
+```
+
+
+#### Recommended Databases
+We recommend custom databases for both kraken2 and diamond. The suggested kraken2 database contains a curated set of 
+sequences that is tailored for finding the most amount of signal for detecting engineering. In order to best indentify 
+codon optimization, identifying the host taxonomy of the found ORF is crucial. Therefore, a comprehensive diamond 
+database is recommended. The suggested diamond database is composed of all UniRef100 sequences with TAXIDs assigned.
+
+- K-mer scan: Custom kraken2 database (~20GB)
+- Codon Optimization: UniRef100 Diamond Database (~235GB)
 
 ### CLI — screen
 

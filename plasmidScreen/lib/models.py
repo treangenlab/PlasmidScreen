@@ -131,7 +131,6 @@ class ReadFlagDetail:
     read_id: str
     kmer_label: Literal["Natural", "Synthetic"]
     engineered_by_kmer_scan: bool
-    engineered_overall: bool
     overall_label: Literal["Natural", "Synthetic"]
     engineered_kmer_max_in_window: Optional[int] = None
     engineered_kmer_threshold: Optional[int] = None
@@ -149,7 +148,3 @@ class ReadFlagDetail:
             methods.append("codon_cai")
         return methods
 
-    @property
-    def engineered_any(self) -> bool:
-        """Alias for :attr:`engineered_overall` (combined threshold decision)."""
-        return self.engineered_overall

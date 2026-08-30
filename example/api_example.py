@@ -4,12 +4,12 @@ from pathlib import Path
 # Have the path ready of the fastq file of interest
 
 fastq = Path("data/example_univec_sequence.fasta")
-
+example_2 = Path("/dodo/fmq1/pKT0174.fasta")
 if __name__ == '__main__':
 
     #build_codon_database(output_dir="/home/Users/fmq1/tmp/")
-    my_screen_result: ScreenResult = run_screen(fasta_file=fastq, kraken_db="/dodo/fmq1/PlasmidScreenDBNoAddgene",
-                                                diamond_db="/dodo/dbs/uniref_march_2025_with_tax.dmnd",threads=10,quiet_mode=True, run_codon_usage=False)
+    my_screen_result: ScreenResult = run_screen(fasta_file=example_2, engineered_kmer_threshold=200, kraken_db="/dodo/fmq1/PlasmidScreenDBNoAddgene",
+                                                diamond_db="/dodo/dbs/uniref_march_2025_with_tax.dmnd",threads=10,quiet_mode=True, run_codon_usage=True)
     # Here is the found engineered reads
     print(my_screen_result.engineered_read_ids)
     # Here is the engineered reads based on kmer scanning
