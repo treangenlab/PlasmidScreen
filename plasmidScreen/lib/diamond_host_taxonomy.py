@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
+from plasmidScreen.lib.models import MEMORY_MODE, MEMORY_CONFIG
+
 # outfmt 6: qseqid sseqid qstart qend pident length evalue bitscore staxids sscinames
 DIAMOND_OUTFMT = (
     "6",
@@ -95,6 +97,7 @@ def resolve_diamond_lines(
         diamond_db: str | Path | None,
         *,
         run_diamond: bool = True,
+        mem_mode:int = 0,
         output_path: str | Path | None = None,
         debug_write_output: bool = False,
         threads: int = 4,
@@ -127,6 +130,7 @@ def resolve_diamond_lines(
         reads_path,
         diamond_db,
         threads=threads,
+        mem_mode=mem_mode,
         output_path=write_path,
     )
     return lines, write_path
@@ -135,28 +139,28 @@ def resolve_diamond_lines(
 def run_diamond_blastx(
         reads_path: str | Path,
         diamond_db: str | Path,
-        threads: int = 4,
+        threads: int,
+        mem_mode: int,
         output_path: str | Path | None = None,
 ) -> list[str]:
     """Run DIAMOND blastx; ORF detection is built in (--min-orf)."""
     reads_path = Path(reads_path)
     diamond_db = Path(diamond_db)
 
-    #        -d "${databaseDir}/diamond/uniref.mini.dmnd" \
-    #    -o outchunk \
-    ##    --evalue "${EVALUE}" \
-    #    --threads "${THREADS}" \
-    #    --block-size 4 \
-    ##    --index-chunks 3 \
-     #   --salltitles \
-     #   --fast \
-     #   --frameshift 15 \
-     #   --range-culling \
-     #   --culling-overlap 50 \
-    #    --range-cover 50 \
-    #    --min-orf 30 \
-    #    -k 1 \
-    #    --masking seg \
+    if MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.LOW.value:
+        block_size = "4"
+        index_chunks = "3"
+    elif MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.MEDIUM.value:
+        block_size = "6"
+        index_chunks = "1"
+    elif MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.HIGH.value:
+        block_size = "12"
+        index_chunks = "1"
+    else:
+        raise ValueError("memory_mode was expecting a value between 0-2 where:"
+                         "\nlow(0) <= 32GB  RAM "
+                         "\nmedium(1) <= 64GB  RAM "
+                         "\nhigh(2) <= 128GB RAM")
 
     cmd: list[str] = [
         "diamond",
@@ -170,9 +174,9 @@ def run_diamond_blastx(
         "--threads",
         str(threads),
         "--block-size",
-        "4",
+        block_size,
         "--index-chunks",
-        "3",
+        index_chunks,
         "--salltitles",
         "--range-culling",
         "--culling-overlap",
@@ -295,7 +299,7 @@ def hits_to_orf_intervals(
     return intervals
 
 
-def majority_taxid(taxids: Sequence[str],) -> Optional[str]:
+def majority_taxid(taxids: Sequence[str], ) -> Optional[str]:
     """
     Gets the majority taxid along a subsequence from diamond.
     """

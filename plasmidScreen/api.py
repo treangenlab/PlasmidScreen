@@ -15,7 +15,7 @@ from plasmidScreen.src.codon_usage.codon_usage_db import (
 )
 from plasmidScreen.lib.models import (
     BuildCodonReferenceResult,
-    ScreenResult,
+    ScreenResult, MEMORY_CONFIG,
 )
 from plasmidScreen.lib.types import GeneSet
 from plasmidScreen.src.plasmidScreen import Workflow
@@ -47,7 +47,8 @@ def run_screen(
     diamond_output_path: str | Path | None = None,
     debug_write_diamond_output: bool = False,
     run_diamond: bool = True,
-    quiet_mode:bool = True
+    quiet_mode: bool = True,
+    memory_mode: int = 0,
 ) -> ScreenResult:
     """
     Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
@@ -102,6 +103,11 @@ def run_screen(
         Run DIAMOND blastx; if False, load precomputed TSV from ``diamond_output_path``.
     quiet_mode
         Forces the STDOUT to be suppressed
+    memory_mode
+        specify the memory configuration for deploying Plasmidscreen with a few discrete bins:
+            low(0)    - 32GB  RAM
+            medium(1) - 64GB  RAM
+            high(2)   - 128GB RAM
 
     Returns
     -------
@@ -123,6 +129,13 @@ def run_screen(
             raise ValueError(
                 "diamond_output_path is required when debug_write_diamond_output=True."
             )
+    if memory_mode in MEMORY_CONFIG.values():
+        mem_mode = MEMORY_CONFIG.get(memory_mode)
+    else:
+        raise ValueError("memory_mode was expecting a value between 0-2 where:"
+                         "\nlow(0) <= 32GB  RAM "
+                         "\nmedium(1) <= 64GB  RAM "
+                         "\nhigh(2) <= 128GB RAM")
     workflow = Workflow(
         str(fasta_file),
         str(engineered_report_path) if engineered_report_path else None,
@@ -142,7 +155,8 @@ def run_screen(
         diamond_output_path=str(diamond_output_path) if diamond_output_path else None,
         debug_write_diamond_output=debug_write_diamond_output,
         run_diamond=run_diamond,
-        quiet_mode=quiet_mode
+        quiet_mode=quiet_mode,
+        mem_mode = mem_mode
     )
     return workflow.run()
 
