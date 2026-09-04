@@ -109,6 +109,7 @@ def analyze_codon_adaptation(
         *,
         diamond_db: Union[str, Path] | None = None,
         diamond_threads: int = 4,
+        mem_mode:int = 0,
         run_diamond: bool = True,
         diamond_output_path: Union[str, Path] | None = None,
         debug_write_diamond_output: bool = False,
@@ -162,6 +163,7 @@ def analyze_codon_adaptation(
     diamond_lines, diamond_path = resolve_diamond_lines(
         reads_path,
         diamond_db,
+        mem_mode=mem_mode,
         run_diamond=run_diamond,
         output_path=diamond_output_path,
         debug_write_output=debug_write_diamond_output,
