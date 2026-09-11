@@ -32,6 +32,7 @@ def parse_kraken_lines(lines: Iterable[str]) -> dict[str, KrakenReadInfo]:
             continue
         k_info = parts[-1] if len(parts) >= 5 else ""
         kraken_data[read_id] = (status, taxid, r_len, k_info)
+
     return kraken_data
 
 

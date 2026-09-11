@@ -213,7 +213,7 @@ class Workflow:
     @staticmethod
     def parse_and_run(
             kmer_pos_info: str, window_size: int, threshold: int
-    ) -> tuple[bool, int]:
+    ) -> (tuple[bool, int], float):
         raw_data = kmer_pos_info.replace("|:|", "").split()
         if not raw_data:
             return False, 0
@@ -221,7 +221,8 @@ class Workflow:
         window_size = int(window_size)
         threshold = int(threshold)
         max_kmers = max(window_size - 21 + 1, 1)
-
+        total_syn_counts = 0
+        tot_counts = 0
         n = len(raw_data)
         tids = np.zeros(n, dtype=np.int64)
         counts = np.zeros(n, dtype=np.int64)
@@ -233,6 +234,9 @@ class Workflow:
                     tids[i] = -1
                 else:
                     tids[i] = int(t)
+                if t == "32630":
+                    total_syn_counts += int(c)
+                tot_counts += int(c)
                 counts[i] = min(int(c), max_kmers)
         except (ValueError, IndexError, OverflowError):
             return False, 0
@@ -240,7 +244,7 @@ class Workflow:
         tids = np.ascontiguousarray(tids, dtype=np.int64)
         counts = np.ascontiguousarray(counts, dtype=np.int64)
         try:
-            return fast_window_logic(tids, counts, window_size, threshold)
+            return *fast_window_logic(tids, counts, window_size, threshold), total_syn_counts / tot_counts
         except TypeError:
             # Older Numba builds can fail to unbox int32-annotated arrays; int64 + fallback.
             return Workflow._fast_window_logic_python(
@@ -257,7 +261,6 @@ class Workflow:
         """Pure-Python fallback when Numba cannot compile/unbox inputs."""
         target_tid = 32630
         max_kmers = window_size - 21 + 1
-
         eng_count = 0
         non_eng_count = 0
         total_count = 0
@@ -311,7 +314,7 @@ class Workflow:
         categories = entry.split("\t")
         if len(categories) < 2:
             return None
-        synthetic_boolean, max_eng = self.parse_and_run(
+        synthetic_boolean, max_eng, synth_coverage = self.parse_and_run(
             categories[-1], self.window_size, self.threshold
         )
         read_id = categories[1]
@@ -412,7 +415,7 @@ class Workflow:
                 len(engineered_scan.natural_read_ids),
                 self.codon_usage_dir,
             )
-            codon_results: CodonAdaptationResult  = self.run_codon_adaptation(engineered_scan.natural_read_ids)
+            codon_results: CodonAdaptationResult = self.run_codon_adaptation(engineered_scan.natural_read_ids)
           #  if self.codon_usage_output_path is not None:
           #      codon_path_str = write_codon_adaptation_results_tsv(
           #          self.codon_usage_output_path,
@@ -433,7 +436,7 @@ class Workflow:
                 if len(parts) < 2:
                     continue
                 rid = parts[1]
-                _hit, max_eng = self.parse_and_run(
+                _hit, max_eng, syn_coverage = self.parse_and_run(
                     parts[-1], self.window_size, self.threshold
                 )
                 kmer_max_by_read[rid] = max_eng
@@ -443,7 +446,7 @@ class Workflow:
             if codon_by_read is not None:
                 codon = codon_by_read.get(lbl.read_id)
             else:
-                codon =None
+                codon = None
             cai = codon.cai_vs_host if codon else None
             engineered_by_codon: bool | None = None
             if cai is not None and self.codon_cai_engineered_threshold is not None:
