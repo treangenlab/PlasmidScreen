@@ -121,7 +121,8 @@ class Workflow:
             diamond_output_path: str | Path | None = None,
             debug_write_diamond_output: bool = False,
             run_diamond: bool = True,
-            quiet_mode: bool = False
+            quiet_mode: bool = False,
+            mem_mode: int = 0
     ) -> None:
         self.fasta_file = Path(fasta_file)
         self.report_output_path = (
@@ -154,6 +155,7 @@ class Workflow:
         self.run_diamond_enabled = run_diamond
         self._diamond_output_saved = None
         self.quiet_mode = quiet_mode
+        self.mem_mode = mem_mode
 
     def _ensure_kraken_in_memory(self) -> None:
         if self._kraken_lines is not None and self._kraken_data is not None:
@@ -362,6 +364,7 @@ class Workflow:
         results, diamond_path = analyze_codon_adaptation(
             self.fasta_file,
             diamond_db=self.diamond_db,
+            mem_mode=self.mem_mode,
             diamond_threads=self.diamond_threads,
             run_diamond=self.run_diamond_enabled,
             diamond_output_path=self.diamond_output_path,

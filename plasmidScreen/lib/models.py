@@ -4,11 +4,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
+from enum import Enum
+
+MEMORY_CONFIG = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
+
+
+class MEMORY_MODE(Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
 
 
 @dataclass
 class CodonAdaptationResult:
     labels: list[CodonAdaptationRead] | None = field(default=list)
+
     @property
     def natural_read_ids(self) -> set[str]:
         return {r.read_id for r in self.labels if r.label == "Natural"}
@@ -105,7 +115,6 @@ class ScreenResult:
     codon_usage_report_path: Optional[Path] = None
     diamond_output_path: Optional[Path] = None
 
-
     @property
     def overall_engineered_read_count(self) -> int:
         """Reads classified as engineered under the combined k-mer + codon rules."""
@@ -147,4 +156,3 @@ class ReadFlagDetail:
         if self.engineered_by_codon_cai:
             methods.append("codon_cai")
         return methods
-
