@@ -131,6 +131,7 @@ class ReadFlagDetail:
     read_id: str
     kmer_label: Literal["Natural", "Synthetic"]
     engineered_by_kmer_scan: bool
+    engineered_overall: bool
     overall_label: Literal["Natural", "Synthetic"]
     engineered_kmer_max_in_window: Optional[int] = None
     engineered_kmer_threshold: Optional[int] = None
