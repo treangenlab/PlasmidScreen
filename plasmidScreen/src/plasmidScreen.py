@@ -226,15 +226,17 @@ class Workflow:
 
         window_size = int(window_size)
         threshold = int(threshold)
+        total_syn_counts = 0
+        tot_counts = 0
 
         max_minimizers = max(window_size - k - l + 2, 1)  #
-        #max_kmers = max(window_size - 21 + 1, 1)
         target_tid = "32630"
         n = len(raw_data)
         tids = np.zeros(n)
         counts = np.zeros(n)
         target_kmers=0
-        total_kmers = 0
+        total_kmers_including_unmapped = 0
+        total_mapped_kmers = 0
         try:
             for i, item in enumerate(raw_data):
                 t, c = item.split(":", 1)
@@ -242,19 +244,18 @@ class Workflow:
                     tids[i] = -1
                 else:
                     tids[i] = int(t)
-                    total_kmers +=int(c)
-                counts[i] = min(int(c), max_minimizers)  #max_kmers)
+                    total_mapped_kmers +=int(c)
                 if target_tid == t:
                     target_kmers += counts[i]
-                  #  p_value, qvals, sign = call_synthetic_reads(target_kmers, total_kmers, BACKGROUND_RATE,
-                   #                                                     num_reads)
+                total_kmers_including_unmapped+=int(c)
+                counts[i] = min(int(c), max_minimizers)
         except (ValueError, IndexError, OverflowError):
             return False, 0
 
         tids = np.ascontiguousarray(tids, dtype=np.int64)
         counts = np.ascontiguousarray(counts, dtype=np.int64)
         try:
-            return *fast_window_logic(tids, counts, window_size, threshold), target_kmers, total_kmers  #p_value
+            return *fast_window_logic(tids, counts, window_size, threshold), target_kmers, total_mapped_kmers, target_kmers / total_kmers_including_unmapped  #p_value
         except TypeError:
             # Older Numba builds can fail to unbox int32-annotated arrays; int64 + fallback.
             return Workflow._fast_window_logic_python(
@@ -271,7 +272,6 @@ class Workflow:
         """Pure-Python fallback when Numba cannot compile/unbox inputs."""
         target_tid = 32630
         max_kmers = window_size - 21 + 1
-
         eng_count = 0
         non_eng_count = 0
         total_count = 0
@@ -325,9 +325,8 @@ class Workflow:
         categories = entry.split("\t")
         if len(categories) < 2:
             return None
-        synthetic_boolean, max_eng, target_kmers, tot_kmers = self.parse_and_run(
+        synthetic_boolean, max_eng, target_kmers, tot_kmers, synth_coverage = self.parse_and_run(
             categories[-1], self.window_size, self.threshold, self.k, self.l, len(self._kraken_lines)
-        )
         read_id = categories[1]
         kmer_max_by_read[read_id] = max_eng
         if synthetic_boolean:
@@ -455,7 +454,7 @@ class Workflow:
                 if len(parts) < 2:
                     continue
                 rid = parts[1]
-                _hit, max_eng, syn_kmers, total_kmers = self.parse_and_run(
+                _hit, max_eng, syn_kmers, total_kmers,syn_coverage = self.parse_and_run(
                     parts[-1], self.window_size, self.threshold, self.k, self.l, len(self._kraken_lines)
                 )
                 kmer_max_by_read[rid] = max_eng
