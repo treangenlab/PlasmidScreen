@@ -8,6 +8,8 @@ from enum import Enum
 
 MEMORY_CONFIG = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
+BACKGROUND_RATE = 0.0003
+
 
 class MEMORY_MODE(Enum):
     LOW = "LOW"
@@ -148,6 +150,7 @@ class ReadFlagDetail:
     cai_vs_host: Optional[float] = None
     engineered_by_codon_cai: Optional[bool] = None
     codon_cai_threshold: Optional[float] = None
+    p_value: Optional[float] = None
 
     @property
     def engineered_methods(self) -> list[str]:
