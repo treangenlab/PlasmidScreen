@@ -32,8 +32,6 @@ ran. If either are found to contain engineering, `ScreenResult` object will repo
 - With `--codon-cai-threshold`, a read can be k-mer **Natural** but overall **Synthetic** if CAI is low.
 - Use **`screen_result.overall_synthetic_count`**, **`engineered_read_ids`**, and **`natural_read_ids_overall`** for run-level summaries (not only `engineered_scan.synthetic_count`).
 
-The written engineered report TSV (`report.txt`) still records **k-mer scan** labels only. The combined decision lives in the library `ScreenResult` / `ReadFlagDetail` objects.
-
 ### Library usage
 
 ```python
