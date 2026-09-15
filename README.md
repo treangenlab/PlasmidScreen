@@ -52,7 +52,7 @@ screen_result = run_screen(
     diamond_db="/path/to/protein.dmnd",
     codon_usage_dir="/path/to/codon_usage_db",
     engineered_report_path="engineered_report.txt",  # omit for in-memory results only
-    codon_cai_engineered_threshold=0.7,
+    codon_cai_engineered_threshold=0.6,
 )
 # Here is the found engineered reads
 print(screen_result.engineered_read_ids)
