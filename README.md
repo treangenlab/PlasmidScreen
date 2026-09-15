@@ -134,8 +134,8 @@ python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db \
 # Low CAI can flag overall engineered (on Natural reads with CAI scores)
 python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db \
   --diamond-db /path/to/protein.dmnd \
-  --codon-cai-threshold 0.7 \
-  --threshold 25
+  --codon-cai-threshold 0.6 \
+  --threshold 10
 
 # Engineered k-mer scan only (no codon / DIAMOND; overall == k-mer labels)
 python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage
@@ -145,4 +145,4 @@ If a host taxid has no resolvable codon table, screening raises `MissingCodonRef
 
 
 #### P-Value Documentation
-The output contains two columns representing the degree of confidence that a given read is of synthetic origin. The first is the percentage of total mapped k-mers that map to a synthetic origin, and the second is a p-value representing the probability of this fraction of reads mapping by chance. The p-value is computed using a binomial distribution using the total number of mapped k-mers, the number mapping as synthetic and a pre-specified background rate. The background rate represents the approximate probability that a random k-mer from non-synthetic origin will map as synthetic in our database. This number can be configured although based on our testing we suggest a background rate of 0.1%, which is a conservative number but for truly synthetic reads becomes significant very quickly. The p-values printed also use a Benjamani-Hochberg FDR correction based on the total number of reads mapped in the sample. 
+The output contains two columns representing the degree of confidence that a given read is of synthetic origin. The first is the percentage of total mapped k-mers that map to a synthetic origin, and the second is a p-value representing the probability of this fraction of reads mapping by chance. The p-value is computed using a binomial distribution using the total number of mapped k-mers, the number mapping as synthetic, and a pre-specified background rate of engineered k-mers found in a curated non-engineered dataset of bacterial chromosomes and naturally occurring plasmids outside PlasmidScreen's database. The background rate represents the approximate probability that a random k-mer from non-synthetic origin will map as synthetic in our database. We suggest a conservative background rate of 0.1%; lower values will lead to more aggressive filtering of synthetic reads. The p-values printed also use a Benjamani-Hochberg FDR correction based on the total number of reads mapped in the sample. 
