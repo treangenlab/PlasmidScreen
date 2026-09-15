@@ -5,6 +5,7 @@ from rich.logging import RichHandler
 from typing import Annotated
 
 from plasmidScreen.lib.funcs import get_default_db_path
+from plasmidScreen.lib.models import BACKGROUND_RATE
 from plasmidScreen.src.codon_usage.codon_usage_db import default_codon_usage_dir
 from plasmidScreen.src.codon_usage.codon_usage_sources import default_csdb_archive_path
 from plasmidScreen.api import run_screen
@@ -79,6 +80,9 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
                                                          "existing classifications file.")] = True,
            kraken_db_path: Annotated[str, typer.Argument(help="Kraken2 database path")] = DEFAULT_DB_PATH,
            threads: Annotated[int, typer.Option("--threads", help="Available threads to use.")] = 4,
+           background_rate: Annotated[float, typer.Option("--bg", help="Background rate to set for p-value "
+                                                                       "calculation")] = BACKGROUND_RATE,
+
            ) -> None:
     if not run_kraken and not kraken_output_path:
         raise typer.BadParameter("--kraken-output-path is required when --no-run-kraken is set")
@@ -116,6 +120,7 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
         diamond_output_path=diamond_output_path,
         debug_write_diamond_output=debug_write_diamond_out,
         run_diamond=run_diamond,
+        background_rate=background_rate
     )
 
 
