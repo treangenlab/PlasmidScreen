@@ -417,8 +417,9 @@ class Workflow:
                     line += "codon_optimized"
                 else:
                     line += "NA"
-                line += "\t" + str(read.p_value)
                 line += "\t" + f"{read.eng_kmer_coverage:.2%}"
+                line += "\t" + str(read.p_value)
+
                 write_obj.write(line + "\n")
 
     def run(self) -> ScreenResult:
