@@ -92,13 +92,9 @@ The archive is cached under `~/.local/share/PlasmidScreen/` unless `--csdb-archi
 Output: `codon_usage/codon_tables.json` and `taxonomy_parents.json`.
 
 
-
-
-
-### Requirements
-
 #### Installation
 ```bash
+pip install -r requirements.txt
 
 ```
 
