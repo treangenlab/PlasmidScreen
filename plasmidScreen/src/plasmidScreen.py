@@ -126,7 +126,8 @@ class Workflow:
             quiet_mode: bool = False,
             mem_mode: int = 0,
             kmer_size: int = 35,
-            minimizer_size: int = 31
+            minimizer_size: int = 31,
+            background_rate: float = BACKGROUND_RATE
     ) -> None:
         self.fasta_file = Path(fasta_file)
         self.report_output_path = (
@@ -162,6 +163,7 @@ class Workflow:
         self._diamond_output_saved = None
         self.quiet_mode = quiet_mode
         self.mem_mode = mem_mode
+        self.background_rate: float = background_rate
 
     def _ensure_kraken_in_memory(self) -> None:
         if self._kraken_lines is not None and self._kraken_data is not None:
@@ -218,7 +220,7 @@ class Workflow:
 
     @staticmethod
     def parse_and_run(
-            kmer_pos_info: str, window_size: int, threshold: int, k: int, l: int, num_reads: int,
+            kmer_pos_info: str, window_size: int, threshold: int, k: int, l: int,
     ):
         raw_data = kmer_pos_info.replace("|:|", "").split()
         if not raw_data:
@@ -226,8 +228,6 @@ class Workflow:
 
         window_size = int(window_size)
         threshold = int(threshold)
-        total_syn_counts = 0
-        tot_counts = 0
 
         max_minimizers = max(window_size - k - l + 2, 1)  #
         target_tid = "32630"
@@ -245,17 +245,19 @@ class Workflow:
                 else:
                     tids[i] = int(t)
                     total_mapped_kmers +=int(c)
-                if target_tid == t:
-                    target_kmers += counts[i]
                 total_kmers_including_unmapped+=int(c)
                 counts[i] = min(int(c), max_minimizers)
+                if target_tid == t:
+                    target_kmers += counts[i]
+
         except (ValueError, IndexError, OverflowError):
             return False, 0
 
         tids = np.ascontiguousarray(tids, dtype=np.int64)
         counts = np.ascontiguousarray(counts, dtype=np.int64)
         try:
-            return *fast_window_logic(tids, counts, window_size, threshold), target_kmers, total_mapped_kmers, target_kmers / total_kmers_including_unmapped  #p_value
+            return (*fast_window_logic(tids, counts, window_size, threshold), target_kmers, total_mapped_kmers,
+                    target_kmers / total_kmers_including_unmapped)
         except TypeError:
             # Older Numba builds can fail to unbox int32-annotated arrays; int64 + fallback.
             return Workflow._fast_window_logic_python(
@@ -325,8 +327,8 @@ class Workflow:
         categories = entry.split("\t")
         if len(categories) < 2:
             return None
-        synthetic_boolean, max_eng, target_kmers, tot_kmers, synth_coverage = self.parse_and_run(
-            categories[-1], self.window_size, self.threshold, self.k, self.l, len(self._kraken_lines)
+        synthetic_boolean, max_eng, target_kmers, tot_kmers, eng_kmer_coverage = self.parse_and_run(
+            categories[-1], self.window_size, self.threshold, self.k, self.l)
         read_id = categories[1]
         kmer_max_by_read[read_id] = max_eng
         if synthetic_boolean:
@@ -335,7 +337,9 @@ class Workflow:
         else:
             result.natural_count += 1
             label = "Natural"
-        result.labels.append(ReadEngineeringLabel(read_id=read_id, label=label))
+        result.labels.append(ReadEngineeringLabel(read_id=read_id,
+                                                  label=label,
+                                                  eng_kmer_coverage = eng_kmer_coverage))
         return target_kmers, tot_kmers
 
     def scan_engineered_blocks_kraken(self) -> EngineeredScanResult:
@@ -397,7 +401,7 @@ class Workflow:
 
     def write_screen_result(self, per_read: List[ReadFlagDetail]) -> None:
         header = (
-            "Label\tRead_ID\tMethods"
+            "Label\tRead_ID\tMethods\tP-Value\tEng-Coverage"
         )
         with open(self.report_output_path, 'w') as write_obj:
             for read in per_read:
@@ -413,6 +417,7 @@ class Workflow:
                 else:
                     line += "NA"
                 line += "\t" + str(read.p_value)
+                line += "\t%" + str(read.eng_kmer_coverage)
                 write_obj.write(line + "\n")
 
     def run(self) -> ScreenResult:
@@ -455,7 +460,7 @@ class Workflow:
                     continue
                 rid = parts[1]
                 _hit, max_eng, syn_kmers, total_kmers,syn_coverage = self.parse_and_run(
-                    parts[-1], self.window_size, self.threshold, self.k, self.l, len(self._kraken_lines)
+                    parts[-1], self.window_size, self.threshold, self.k, self.l,
                 )
                 kmer_max_by_read[rid] = max_eng
 
@@ -483,6 +488,7 @@ class Workflow:
                 ReadFlagDetail(
                     read_id=lbl.read_id,
                     kmer_label=lbl.label,
+                    eng_kmer_coverage = lbl.eng_kmer_coverage,
                     engineered_by_kmer_scan=engineered_by_kmer,
                     engineered_overall=engineered_overall,
                     overall_label=overall_label,
@@ -493,6 +499,7 @@ class Workflow:
                     engineered_by_codon_cai=engineered_by_codon,
                     codon_cai_threshold=self.codon_cai_engineered_threshold,
                     p_value=p_values[index]
+
                 )
             )
 

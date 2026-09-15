@@ -50,7 +50,7 @@ class CodonAdaptationRead:
 class ReadEngineeringLabel:
     read_id: str
     label: Literal["Natural", "Synthetic"]
-
+    eng_kmer_coverage: float
 
 @dataclass
 class EngineeredScanResult:
@@ -151,6 +151,7 @@ class ReadFlagDetail:
     engineered_by_codon_cai: Optional[bool] = None
     codon_cai_threshold: Optional[float] = None
     p_value: Optional[float] = None
+    eng_kmer_coverage: Optional[float] = None
 
     @property
     def engineered_methods(self) -> list[str]:

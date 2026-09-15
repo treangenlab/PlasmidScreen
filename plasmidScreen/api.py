@@ -15,7 +15,7 @@ from plasmidScreen.src.codon_usage.codon_usage_db import (
 )
 from plasmidScreen.lib.models import (
     BuildCodonReferenceResult,
-    ScreenResult, MEMORY_CONFIG,
+    ScreenResult, MEMORY_CONFIG, BACKGROUND_RATE,
 )
 from plasmidScreen.lib.types import GeneSet
 from plasmidScreen.src.plasmidScreen import Workflow
@@ -29,26 +29,27 @@ __all__ = [
 
 
 def run_screen(
-    fasta_file: str | Path,
-    kraken_db: str | Path,
-    engineered_report_path: str | Path | None = None,
-    kraken_output_path: str | Path | None = None,
-    threads: int = 4,
-    window_size: int = 200,
-    engineered_kmer_threshold: int = 10,
-    codon_usage_dir: str | Path | None = None,
-    run_kraken: bool = True,
-    debug_write_kraken_output: bool = False,
-    debug_write_kraken_report: bool = False,
-    run_codon_usage: bool = True,
-    codon_usage_output_path: str | Path | None = None,
-    codon_cai_engineered_threshold: float = 0.6,
-    diamond_db: str | Path | None = None,
-    diamond_output_path: str | Path | None = None,
-    debug_write_diamond_output: bool = False,
-    run_diamond: bool = True,
-    quiet_mode: bool = True,
-    memory_mode: int = 0,
+        fasta_file: str | Path,
+        kraken_db: str | Path,
+        engineered_report_path: str | Path | None = None,
+        kraken_output_path: str | Path | None = None,
+        threads: int = 4,
+        window_size: int = 200,
+        engineered_kmer_threshold: int = 10,
+        codon_usage_dir: str | Path | None = None,
+        run_kraken: bool = True,
+        debug_write_kraken_output: bool = False,
+        debug_write_kraken_report: bool = False,
+        run_codon_usage: bool = True,
+        codon_usage_output_path: str | Path | None = None,
+        codon_cai_engineered_threshold: float = 0.6,
+        diamond_db: str | Path | None = None,
+        diamond_output_path: str | Path | None = None,
+        debug_write_diamond_output: bool = False,
+        run_diamond: bool = True,
+        quiet_mode: bool = True,
+        memory_mode: int = 0,
+        background_rate: float = BACKGROUND_RATE
 ) -> ScreenResult:
     """
     Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
@@ -156,19 +157,20 @@ def run_screen(
         debug_write_diamond_output=debug_write_diamond_output,
         run_diamond=run_diamond,
         quiet_mode=quiet_mode,
-        mem_mode = mem_mode
+        mem_mode=mem_mode,
+        background_rate = background_rate
     )
     return workflow.run()
 
 
 def build_codon_database(
-    *,
-    output_dir: str | Path | None = None,
-    taxids: Iterable[str | int] | None = None,
-    taxids_file: str | Path | None = None,
-    csdb_archive: str | Path | None = None,
-    download_csdb: bool = True,
-    gene_set: GeneSet = "nuclear",
+        *,
+        output_dir: str | Path | None = None,
+        taxids: Iterable[str | int] | None = None,
+        taxids_file: str | Path | None = None,
+        csdb_archive: str | Path | None = None,
+        download_csdb: bool = True,
+        gene_set: GeneSet = "nuclear",
 ) -> BuildCodonReferenceResult:
     """
     Serves as an API wrapper for build_codon_reference so users can easily create codon database as needed.
