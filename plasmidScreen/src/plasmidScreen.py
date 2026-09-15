@@ -401,9 +401,10 @@ class Workflow:
 
     def write_screen_result(self, per_read: List[ReadFlagDetail]) -> None:
         header = (
-            "Label\tRead_ID\tMethods\tP-Value\tEng-Coverage"
+            "Label\tRead_ID\tMethods\tP-Value\tEng-Coverage Percentage"
         )
         with open(self.report_output_path, 'w') as write_obj:
+            write_obj.write(header+"\n")
             for read in per_read:
                 if read.engineered_overall:
                     line = "Engineered\t"
@@ -417,7 +418,7 @@ class Workflow:
                 else:
                     line += "NA"
                 line += "\t" + str(read.p_value)
-                line += "\t%" + str(read.eng_kmer_coverage)
+                line += "\t" + f"{read.eng_kmer_coverage:.2%}"
                 write_obj.write(line + "\n")
 
     def run(self) -> ScreenResult:
@@ -487,7 +488,7 @@ class Workflow:
             per_read.append(
                 ReadFlagDetail(
                     read_id=lbl.read_id,
-                    kmer_label=lbl.label,
+                    kmer_label=Literal["Natural"] if p_values[index] > 0.05 else lbl.label,
                     eng_kmer_coverage = lbl.eng_kmer_coverage,
                     engineered_by_kmer_scan=engineered_by_kmer,
                     engineered_overall=engineered_overall,
