@@ -82,6 +82,10 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
            threads: Annotated[int, typer.Option("--threads", help="Available threads to use.")] = 4,
            background_rate: Annotated[float, typer.Option("--bg", help="Background rate to set for p-value "
                                                                        "calculation")] = BACKGROUND_RATE,
+           mem_mode: Annotated[int, typer.Option("--mem-mode",help="""specify the memory configuration for deploying Plasmidscreen with a few discrete bins:
+                                                                   low(0)    - 32GB  RAM
+                                                                   medium(1) - 64GB  RAM
+                                                                   high(2)   - 128GB RAM""")] = 0
 
            ) -> None:
     if not run_kraken and not kraken_output_path:
@@ -120,7 +124,8 @@ def screen(ctx: typer.Context, fasta_file: Annotated[str, typer.Argument(help="F
         diamond_output_path=diamond_output_path,
         debug_write_diamond_output=debug_write_diamond_out,
         run_diamond=run_diamond,
-        background_rate=background_rate
+        background_rate=background_rate,
+        memory_mode=mem_mode
     )
 
 
