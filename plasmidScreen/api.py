@@ -109,6 +109,8 @@ def run_screen(
             low(0)    - 32GB  RAM
             medium(1) - 64GB  RAM
             high(2)   - 128GB RAM
+    background_rate
+        probability rate of how likely any given kmer is classified as engineered.
 
     Returns
     -------
@@ -130,13 +132,11 @@ def run_screen(
             raise ValueError(
                 "diamond_output_path is required when debug_write_diamond_output=True."
             )
-    if memory_mode in MEMORY_CONFIG.values():
-        mem_mode = MEMORY_CONFIG.get(memory_mode)
-    else:
+    if not memory_mode in MEMORY_CONFIG.values():
         raise ValueError("memory_mode was expecting a value between 0-2 where:"
-                         "\nlow(0) <= 32GB  RAM "
-                         "\nmedium(1) <= 64GB  RAM "
-                         "\nhigh(2) <= 128GB RAM")
+            "\nlow(0) <= 32GB  RAM "
+            "\nmedium(1) <= 64GB  RAM "
+            "\nhigh(2) <= 128GB RAM")
     workflow = Workflow(
         str(fasta_file),
         str(engineered_report_path) if engineered_report_path else None,
@@ -157,8 +157,8 @@ def run_screen(
         debug_write_diamond_output=debug_write_diamond_output,
         run_diamond=run_diamond,
         quiet_mode=quiet_mode,
-        mem_mode=mem_mode,
-        background_rate = background_rate
+        mem_mode=memory_mode,
+        background_rate=background_rate
     )
     return workflow.run()
 

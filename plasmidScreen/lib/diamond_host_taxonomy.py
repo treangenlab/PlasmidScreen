@@ -146,14 +146,13 @@ def run_diamond_blastx(
     """Run DIAMOND blastx; ORF detection is built in (--min-orf)."""
     reads_path = Path(reads_path)
     diamond_db = Path(diamond_db)
-
-    if MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.LOW.value:
+    if mem_mode==0: #MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.LOW.value:
         block_size = "4"
         index_chunks = "3"
-    elif MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.MEDIUM.value:
+    elif mem_mode==1: # MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.MEDIUM.value:
         block_size = "6"
         index_chunks = "1"
-    elif MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.HIGH.value:
+    elif mem_mode==2: #MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.HIGH.value:
         block_size = "12"
         index_chunks = "1"
     else:
