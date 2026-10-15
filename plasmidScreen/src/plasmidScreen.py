@@ -357,7 +357,9 @@ class Workflow:
         ))
         return target_kmers, tot_kmers
 
-    def scan_engineered_blocks_kraken(self) -> tuple[EngineeredScanResult, NDArray]:
+    def scan_engineered_blocks_kraken(
+            self,
+    ) -> tuple[EngineeredScanResult, NDArray, dict[str, int]]:
         result = EngineeredScanResult()
         self._ensure_kraken_in_memory()
         kmer_max_by_read: dict[str, int] = {}
@@ -389,7 +391,7 @@ class Workflow:
             n_reads_total=len(entries),
             alpha=0.05,
         )
-        return result, p_values
+        return result, p_values, kmer_max_by_read
 
     def run_codon_adaptation(self, natural_read_ids: set[str]) -> CodonAdaptationResult:
         if not natural_read_ids:
@@ -448,7 +450,7 @@ class Workflow:
     def run(self) -> ScreenResult:
         if self.run_kraken_enabled:
             self.run_kraken()
-        engineered_scan, p_values = self.scan_engineered_blocks_kraken()
+        engineered_scan, p_values, kmer_max_by_read = self.scan_engineered_blocks_kraken()
 
         codon_path: Path | None = None
         codon_results = CodonAdaptationResult(labels=[])
@@ -473,18 +475,6 @@ class Workflow:
                 codon_path = Path(codon_path_str)
 
         codon_by_read = {r.read_id: r for r in codon_results.labels}
-
-        kmer_max_by_read: dict[str, int] = {}
-        if self._kraken_lines is not None:
-            for line in self._kraken_lines:
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) < 2:
-                    continue
-                rid = parts[1]
-                _hit, max_eng, _syn_kmers, _total_kmers, _syn_coverage = self.parse_and_run(
-                    parts[-1], self.window_size, self.threshold, self.k, self.l,
-                )
-                kmer_max_by_read[rid] = max_eng
 
         per_read: list[ReadFlagDetail] = []
         for index, lbl in enumerate(engineered_scan.labels):
