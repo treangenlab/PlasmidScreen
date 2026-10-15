@@ -1,14 +1,24 @@
 """Codon adaptation analysis via DIAMOND blastx and pre-built CSDB reference tables."""
 from __future__ import annotations
 
+import logging
 import math
+import os
+import tempfile
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
 from Bio import SeqIO
+from Bio.SeqIO.FastaIO import SimpleFastaParser
+from Bio.SeqIO.QualityIO import FastqGeneralIterator
 
 from plasmidScreen.src.codon_usage.codon_usage_db import CodonUsageStore, default_codon_usage_dir
 from plasmidScreen.lib.models import CodonAdaptationResult, CodonAdaptationRead
+from plasmidScreen.lib.seqio_util import (
+    is_fastq_path,
+    open_text_maybe_gzip,
+    sequence_format,
+)
 from plasmidScreen.lib.types import CdsOrf, KrakenReadInfo
 from plasmidScreen.lib.diamond_host_taxonomy import (
     infer_orfs_and_host_taxids,
@@ -157,6 +167,40 @@ def write_codon_adaptation_tsv(
     return path, results
 
 
+def write_subset_reads(
+        reads_path: Path,
+        include_read_ids: set[str],
+        dest: Path,
+) -> int:
+    """
+    Write only ``include_read_ids`` from ``reads_path`` into ``dest``.
+
+    Returns the number of records written. Preserves FASTA vs FASTQ format.
+    Supports gzip-compressed inputs (``.gz``); ``dest`` is always plain text.
+    """
+    written = 0
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if is_fastq_path(reads_path):
+        with open_text_maybe_gzip(reads_path) as in_h, open(
+            dest, "w", encoding="utf-8"
+        ) as out_h:
+            for title, seq, qual in FastqGeneralIterator(in_h):
+                read_id = title.split(None, 1)[0]
+                if read_id in include_read_ids:
+                    out_h.write(f"@{title}\n{seq}\n+\n{qual}\n")
+                    written += 1
+    else:
+        with open_text_maybe_gzip(reads_path) as in_h, open(
+            dest, "w", encoding="utf-8"
+        ) as out_h:
+            for title, seq in SimpleFastaParser(in_h):
+                read_id = title.split(None, 1)[0]
+                if read_id in include_read_ids:
+                    out_h.write(f">{title}\n{seq}\n")
+                    written += 1
+    return written
+
+
 def analyze_codon_adaptation(
         reads_path: Union[str, Path],
         *,
@@ -176,6 +220,8 @@ def analyze_codon_adaptation(
     Pipeline per read with DIAMOND hits:
 
     1. Run DIAMOND blastx (``--min-orf``) or load a saved outfmt 6 TSV.
+       When ``include_read_ids`` is set and DIAMOND is run, only those reads are
+       written to a temporary query file (avoids blasting Synthetic reads).
     2. Merge hit ``qstart``/``qend`` into ORF intervals; pick the longest interval.
     3. Infer host taxid from hit ``staxids`` (majority over alignments).
     4. Resolve host taxid to a reference codon table (NCBI lineage fallback).
@@ -184,7 +230,7 @@ def analyze_codon_adaptation(
     Parameters
     ----------
     reads_path
-        FASTA or FASTQ path.
+        FASTA or FASTQ path (plain or ``.gz``).
     diamond_db
         DIAMOND protein database (``.dmnd``). Required when ``run_diamond=True``.
     run_diamond
@@ -213,72 +259,101 @@ def analyze_codon_adaptation(
         data_dir = Path(codon_usage_dir) if codon_usage_dir else default_codon_usage_dir()
         store = CodonUsageStore.load(data_dir)
 
-    diamond_lines, diamond_path = resolve_diamond_lines(
-        reads_path,
-        diamond_db,
-        mem_mode=mem_mode,
-        run_diamond=run_diamond,
-        output_path=diamond_output_path,
-        debug_write_output=debug_write_diamond_output,
-        threads=diamond_threads,
-    )
-    orfs_by_read, host_by_read = infer_orfs_and_host_taxids(diamond_lines)
-    file_format = "fastq" if reads_path.suffix.lower() in (".fastq", ".fq") else "fasta"
-    pending: list[tuple[str, CdsOrf, str]] = []
+    file_format = sequence_format(reads_path)
+    tmp_subset: Path | None = None
+    diamond_query = reads_path
+    seq_source = reads_path
 
-    for record in SeqIO.parse(reads_path, file_format):
-        read_id = record.id
-        if include_read_ids is not None and read_id not in include_read_ids:
-            continue
-        host_taxid = host_by_read.get(read_id)
-        if not host_taxid:
-            continue
-
-        orfs = orfs_by_read.get(read_id) or []
-        if not orfs:
-            continue
-
-        best = max(orfs, key=lambda o: (o.length_bp, o.end))
-        seq_str = str(record.seq).upper()
-        cds_seq = seq_str[best.start: best.end]
-        if len(cds_seq) < 3:
-            continue
-
-        cds: CdsOrf = {
-            "strand": best.strand,
-            "start": best.start,
-            "end": best.end,
-            "length": len(cds_seq) // 3,
-            "seq": cds_seq,
-        }
-        pending.append((read_id, cds, host_taxid))
-
-    host_taxids = {p[2] for p in pending if p[2] not in ("0", "")}
-    store.require_host_taxids(host_taxids)
-
-    results: CodonAdaptationResult = CodonAdaptationResult(labels=[])
-    for read_id, cds, host_taxid in pending:
-        ref_taxid: Optional[str] = None
-        cai_score: Optional[float] = None
-        if host_taxid not in ("0", "") and len(cds["seq"]) >= 3:
-            ref_taxid = store.resolve_reference_taxid(host_taxid)
-            weights = store.get_cai_weights_for_host(host_taxid)
-            if weights:
-                cai_score = compute_cai(cds["seq"], weights)
-
-        results.labels.append(
-            CodonAdaptationRead(
-                read_id=read_id,
-                cds_strand=cds["strand"],
-                cds_start=cds["start"],
-                cds_end=cds["end"],
-                host_taxid=host_taxid,
-                reference_taxid=ref_taxid,
-                cds_len_bp=len(cds["seq"]),
-                cai_vs_host=cai_score,
-                host_taxid_method="diamond",
+    try:
+        # Only blast the reads we will score (Natural subset in full screen).
+        if run_diamond and include_read_ids is not None:
+            suffix = ".fastq" if file_format == "fastq" else ".fasta"
+            tmp_fd, tmp_name = tempfile.mkstemp(
+                prefix="plasmidScreen_natural_", suffix=suffix
             )
-        )
+            # Close fd; we reopen by path for Bio parsers / DIAMOND.
+            os.close(tmp_fd)
+            tmp_subset = Path(tmp_name)
+            n_written = write_subset_reads(reads_path, include_read_ids, tmp_subset)
+            logging.info(
+                "DIAMOND query subset: %d/%d requested read(s) written to temp file",
+                n_written,
+                len(include_read_ids),
+            )
+            if n_written == 0:
+                return CodonAdaptationResult(labels=[]), None
+            diamond_query = tmp_subset
+            seq_source = tmp_subset
 
-    return results, diamond_path
+        diamond_lines, diamond_path = resolve_diamond_lines(
+            diamond_query,
+            diamond_db,
+            mem_mode=mem_mode,
+            run_diamond=run_diamond,
+            output_path=diamond_output_path,
+            debug_write_output=debug_write_diamond_output,
+            threads=diamond_threads,
+        )
+        orfs_by_read, host_by_read = infer_orfs_and_host_taxids(diamond_lines)
+        pending: list[tuple[str, CdsOrf, str]] = []
+
+        with open_text_maybe_gzip(seq_source) as seq_handle:
+            for record in SeqIO.parse(seq_handle, file_format):
+                read_id = record.id
+                if include_read_ids is not None and read_id not in include_read_ids:
+                    continue
+                host_taxid = host_by_read.get(read_id)
+                if not host_taxid:
+                    continue
+
+                orfs = orfs_by_read.get(read_id) or []
+                if not orfs:
+                    continue
+
+                best = max(orfs, key=lambda o: (o.length_bp, o.end))
+                seq_str = str(record.seq).upper()
+                cds_seq = seq_str[best.start: best.end]
+                if len(cds_seq) < 3:
+                    continue
+
+                cds: CdsOrf = {
+                    "strand": best.strand,
+                    "start": best.start,
+                    "end": best.end,
+                    "length": len(cds_seq) // 3,
+                    "seq": cds_seq,
+                }
+                pending.append((read_id, cds, host_taxid))
+
+        host_taxids = {p[2] for p in pending if p[2] not in ("0", "")}
+        store.require_host_taxids(host_taxids)
+
+        results: CodonAdaptationResult = CodonAdaptationResult(labels=[])
+        for read_id, cds, host_taxid in pending:
+            ref_taxid: Optional[str] = None
+            cai_score: Optional[float] = None
+            if host_taxid not in ("0", "") and len(cds["seq"]) >= 3:
+                ref_taxid = store.resolve_reference_taxid(host_taxid)
+                weights = store.get_cai_weights_for_host(host_taxid)
+                if weights:
+                    cai_score = compute_cai(cds["seq"], weights)
+
+            results.labels.append(
+                CodonAdaptationRead(
+                    read_id=read_id,
+                    cds_strand=cds["strand"],
+                    cds_start=cds["start"],
+                    cds_end=cds["end"],
+                    host_taxid=host_taxid,
+                    reference_taxid=ref_taxid,
+                    cds_len_bp=len(cds["seq"]),
+                    cai_vs_host=cai_score,
+                    host_taxid_method="diamond",
+                )
+            )
+
+        return results, diamond_path
+    finally:
+        if tmp_subset is not None and tmp_subset.exists():
+            tmp_subset.unlink(missing_ok=True)
 

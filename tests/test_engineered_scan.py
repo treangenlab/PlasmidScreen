@@ -65,7 +65,7 @@ def test_scan_engineered_blocks_integration(
         run_kraken=False,
         run_codon_usage=False,
     )
-    scan, p_values = wf.scan_engineered_blocks_kraken()
+    scan, p_values, kmer_max_by_read = wf.scan_engineered_blocks_kraken()
     assert scan.synthetic_count == 1
     assert scan.natural_count == 2  # natural read + unclassified (no 32630 signal)
     labels = {r.read_id: r.label for r in scan.labels}
@@ -73,6 +73,7 @@ def test_scan_engineered_blocks_integration(
     assert labels["read_synthetic_1"] == "Synthetic"
     assert labels["read_unclassified"] == "Natural"
     assert len(p_values) == 3
+    assert set(kmer_max_by_read) >= {"read_natural_1", "read_synthetic_1"}
 
     # Report is written by run(), not scan alone.
     result = wf.run()

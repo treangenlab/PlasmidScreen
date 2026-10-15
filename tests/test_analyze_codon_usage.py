@@ -14,6 +14,7 @@ from plasmidScreen.src.analyze_codon_usage import (
     compute_cai,
     parse_kraken_file,
     write_codon_adaptation_tsv,
+    write_subset_reads,
 )
 
 DIAMOND_LINES = [
@@ -36,6 +37,15 @@ def test_compute_cai_perfect_match() -> None:
     assert compute_cai("ATGAAA", weights) == pytest.approx(1.0)
 
 
+def test_write_subset_reads_filters_ids(sample_fasta: Path, tmp_path: Path) -> None:
+    out = tmp_path / "natural_only.fasta"
+    n = write_subset_reads(sample_fasta, {"read_natural_1"}, out)
+    assert n == 1
+    text = out.read_text()
+    assert ">read_natural_1" in text
+    assert "read_synthetic_1" not in text
+
+
 @patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
 def test_analyze_codon_adaptation_natural_reads_only(
     mock_diamond,
@@ -56,6 +66,10 @@ def test_analyze_codon_adaptation_natural_reads_only(
     assert r.reference_taxid == "562"
     assert r.cai_vs_host is not None
     assert 0.0 <= r.cai_vs_host <= 1.0
+    # DIAMOND should be invoked on a temp subset, not the full input FASTA
+    diamond_query = Path(mock_diamond.call_args[0][0])
+    assert diamond_query != sample_fasta
+    assert diamond_query.exists() is False  # cleaned up in finally
 
 
 @patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
