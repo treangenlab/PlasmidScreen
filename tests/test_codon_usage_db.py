@@ -26,13 +26,32 @@ def test_cai_weights_max_within_amino_acid(uniform_frequencies: dict[str, float]
         assert max(ws) == pytest.approx(1.0), f"AA {aa} should have a max weight of 1.0"
 
 
-def test_store_load_and_resolve_lineage(codon_store: CodonUsageStore) -> None:
+def test_store_load_and_resolve_exact_taxid(codon_store: CodonUsageStore) -> None:
     assert codon_store.has_codon_table("562")
     ref = codon_store.resolve_reference_taxid("562")
     assert ref == "562"
     weights = codon_store.get_cai_weights_for_host("562")
     assert weights is not None
     assert "ATG" in weights
+
+
+def test_resolve_reference_taxid_walks_parents(
+    tmp_path: Path, uniform_frequencies: dict[str, float]
+) -> None:
+    """Child taxid without its own table should resolve to an ancestor table."""
+    import json
+
+    data_dir = tmp_path / "codon_usage"
+    data_dir.mkdir()
+    # Only ancestor 561 has a table; child 562 points up to 561.
+    tables = {"561": {"source": "test", "frequencies": uniform_frequencies}}
+    parents = {"562": "561", "561": "561"}
+    (data_dir / "codon_tables.json").write_text(json.dumps(tables))
+    (data_dir / "taxonomy_parents.json").write_text(json.dumps(parents))
+
+    store = CodonUsageStore.load(data_dir)
+    assert store.resolve_reference_taxid("562") == "561"
+    assert store.get_cai_weights_for_host("562") is not None
 
 
 def test_missing_host_raises(codon_store: CodonUsageStore) -> None:

@@ -16,18 +16,16 @@ from plasmidScreen.src.plasmidScreen import Workflow
     ],
 )
 def test_parse_and_run_synthetic_detection(kmer_field: str, expected: bool) -> None:
-    result = Workflow.parse_and_run(kmer_field, window_size=200, threshold=25)
-    hit, max_eng = result
+    hit, max_eng, _target, _mapped, _cov = Workflow.parse_and_run(
+        kmer_field, window_size=200, threshold=25
+    )
     assert hit is expected
     assert isinstance(max_eng, int)
 
 
 def test_parse_and_run_malformed_or_oversized_counts() -> None:
-    assert Workflow.parse_and_run("", window_size=200, threshold=25) == (False, 0)
-    assert Workflow.parse_and_run("562:66:extra", window_size=200, threshold=25) == (
-        False,
-        0,
-    )
+    assert Workflow.parse_and_run("", window_size=200, threshold=25)[0] is False
+    assert Workflow.parse_and_run("562:66:extra", window_size=200, threshold=25)[0] is False
     huge = "32630:" + str(10**12)
     assert Workflow.parse_and_run(huge, window_size=200, threshold=25)[0] in (
         False,
@@ -45,7 +43,9 @@ def test_parse_and_run_numba_unbox_fallback(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(ps, "fast_window_logic", _raise_type_error)
-    hit, max_eng = Workflow.parse_and_run("32630:66", window_size=200, threshold=25)
+    hit, max_eng, *_rest = Workflow.parse_and_run(
+        "32630:66", window_size=200, threshold=25
+    )
     assert hit is True
     assert max_eng == 25
 
@@ -62,17 +62,20 @@ def test_scan_engineered_blocks_integration(
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
         kraken_raw_output=str(sample_kraken_out),
-        write_engineered_report=True,
         run_kraken=False,
         run_codon_usage=False,
     )
-    scan = wf.scan_engineered_blocks_kraken()
+    scan, p_values = wf.scan_engineered_blocks_kraken()
     assert scan.synthetic_count == 1
     assert scan.natural_count == 2  # natural read + unclassified (no 32630 signal)
     labels = {r.read_id: r.label for r in scan.labels}
     assert labels["read_natural_1"] == "Natural"
     assert labels["read_synthetic_1"] == "Synthetic"
     assert labels["read_unclassified"] == "Natural"
-    text = report.read_text()
+    assert len(p_values) == 3
+
+    # Report is written by run(), not scan alone.
+    result = wf.run()
+    text = result.engineered_report_path.read_text()
     assert "Natural\tread_natural_1" in text
-    assert "Synthetic\tread_synthetic_1\tengineered_kmer_scan" in text
+    assert "Engineered\tread_synthetic_1\tengineered_kmer_scan" in text

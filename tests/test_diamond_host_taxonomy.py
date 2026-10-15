@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from plasmidScreen.lib.diamond_host_taxonomy import (
     DIAMOND_OUTFMT,
     hits_to_orf_intervals,
@@ -52,6 +54,27 @@ def test_run_diamond_blastx_command_args() -> None:
     assert "qstart" in DIAMOND_OUTFMT
     assert "qend" in DIAMOND_OUTFMT
     assert "-o" not in cmd
+
+
+def test_run_diamond_blastx_mem_mode_block_sizes() -> None:
+    from unittest.mock import patch
+
+    expected = {0: ("4", "3"), 1: ("6", "1"), 2: ("12", "1")}
+    for mode, (block, chunks) in expected.items():
+        with patch("plasmidScreen.lib.diamond_host_taxonomy.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = ""
+            mock_run.return_value.returncode = 0
+            run_diamond_blastx("reads.fa", "db.dmnd", threads=1, mem_mode=mode)
+        cmd = mock_run.call_args[0][0]
+        assert cmd[cmd.index("--block-size") + 1] == block
+        assert cmd[cmd.index("--index-chunks") + 1] == chunks
+
+
+def test_run_diamond_blastx_invalid_mem_mode() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="memory_mode"):
+        run_diamond_blastx("reads.fa", "db.dmnd", threads=1, mem_mode=9)
 
 
 def test_run_diamond_blastx_writes_output_file(tmp_path: Path) -> None:

@@ -85,7 +85,7 @@ def run_screen(
     codon_usage_output_path
         Optional path for codon adaptation TSV (Natural reads only).
     codon_cai_engineered_threshold
-        If set, reads with CAI below this value get ``engineered_by_codon_cai=True`` and
+        If set, reads with CAI above this value get ``engineered_by_codon_cai=True`` and
         may be marked ``engineered_overall=True`` on :class:`~plasmidScreen.lib.models.ReadFlagDetail`
         even when the k-mer scan labeled them Natural. Also adds columns to the codon TSV when written.
     engineered_kmer_threshold
@@ -170,7 +170,7 @@ def build_codon_database(
         taxids_file: str | Path | None = None,
         csdb_archive: str | Path | None = None,
         download_csdb: bool = True,
-        gene_set: GeneSet = "nuclear",
+        gene_set: GeneSet = GeneSet.NUCLEAR,
 ) -> BuildCodonReferenceResult:
     """
     Serves as an API wrapper for build_codon_reference so users can easily create codon database as needed.

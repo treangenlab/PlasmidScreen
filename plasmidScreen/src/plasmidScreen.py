@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import subprocess
-import sys
 from pathlib import Path
 from typing import Literal, List
 
@@ -12,6 +11,7 @@ from numpy.typing import NDArray
 from tqdm import tqdm
 
 from plasmidScreen.lib.funcs import call_synthetic_reads
+from plasmidScreen.lib.exceptions import KrakenError
 
 try:
     from numba import jit
@@ -29,11 +29,14 @@ from plasmidScreen.lib.models import (
     ReadFlagDetail,
     ReadEngineeringLabel,
     ScreenResult,
-    compute_engineered_overall, CodonAdaptationRead, BACKGROUND_RATE,
+    compute_engineered_overall,
+    CodonAdaptationRead,
+    BACKGROUND_RATE,
 )
 from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
     parse_kraken_lines,
+    write_codon_adaptation_results_tsv,
 )
 
 
@@ -215,26 +218,34 @@ class Workflow:
             logging.error(
                 "Kraken2 failed (Code %s). Error details: %s", e.returncode, e.stderr
             )
-            sys.exit(1)
+            raise KrakenError(e.returncode, e.stderr) from e
         logging.info("All files processed.")
 
     @staticmethod
     def parse_and_run(
-            kmer_pos_info: str, window_size: int, threshold: int, k: int, l: int,
+            kmer_pos_info: str, window_size: int, threshold: int, k: int = 35, l: int = 31,
     ):
+        """
+        Parse a Kraken k-mer string and scan for engineered (taxid 32630) windows.
+
+        Returns
+        -------
+        (hit, max_eng, target_kmers, total_mapped_kmers, eng_kmer_coverage)
+        """
+        empty = (False, 0, 0, 0, 0.0)
         raw_data = kmer_pos_info.replace("|:|", "").split()
         if not raw_data:
-            return False, 0
+            return empty
 
         window_size = int(window_size)
         threshold = int(threshold)
 
-        max_minimizers = max(window_size - k - l + 2, 1)  #
+        max_minimizers = max(window_size - k - l + 2, 1)
         target_tid = "32630"
         n = len(raw_data)
         tids = np.zeros(n)
         counts = np.zeros(n)
-        target_kmers=0
+        target_kmers = 0
         total_kmers_including_unmapped = 0
         total_mapped_kmers = 0
         try:
@@ -244,25 +255,30 @@ class Workflow:
                     tids[i] = -1
                 else:
                     tids[i] = int(t)
-                    total_mapped_kmers +=int(c)
-                total_kmers_including_unmapped+=int(c)
+                    total_mapped_kmers += int(c)
+                total_kmers_including_unmapped += int(c)
                 counts[i] = min(int(c), max_minimizers)
                 if target_tid == t:
                     target_kmers += counts[i]
 
         except (ValueError, IndexError, OverflowError):
-            return False, 0
+            return empty
 
+        coverage = (
+            target_kmers / total_kmers_including_unmapped
+            if total_kmers_including_unmapped
+            else 0.0
+        )
         tids = np.ascontiguousarray(tids, dtype=np.int64)
         counts = np.ascontiguousarray(counts, dtype=np.int64)
         try:
-            return (*fast_window_logic(tids, counts, window_size, threshold), target_kmers, total_mapped_kmers,
-                    target_kmers / total_kmers_including_unmapped)
+            hit, max_eng = fast_window_logic(tids, counts, window_size, threshold)
         except TypeError:
-            # Older Numba builds can fail to unbox int32-annotated arrays; int64 + fallback.
-            return Workflow._fast_window_logic_python(
+            # Older Numba builds can fail to unbox arrays; fall back to pure Python.
+            hit, max_eng = Workflow._fast_window_logic_python(
                 tids, counts, window_size, threshold
             )
+        return hit, max_eng, target_kmers, total_mapped_kmers, coverage
 
     @staticmethod
     def _fast_window_logic_python(
@@ -321,12 +337,9 @@ class Workflow:
         return False, max_eng_seen
 
     def entry_logic(self, entry: str, kmer_max_by_read, result):
-        """
-
-        """
         categories = entry.split("\t")
         if len(categories) < 2:
-            return None
+            return 0.0, 0.0
         synthetic_boolean, max_eng, target_kmers, tot_kmers, eng_kmer_coverage = self.parse_and_run(
             categories[-1], self.window_size, self.threshold, self.k, self.l)
         read_id = categories[1]
@@ -337,39 +350,51 @@ class Workflow:
         else:
             result.natural_count += 1
             label = "Natural"
-        result.labels.append(ReadEngineeringLabel(read_id=read_id,
-                                                  label=label,
-                                                  eng_kmer_coverage = eng_kmer_coverage))
+        result.labels.append(ReadEngineeringLabel(
+            read_id=read_id,
+            label=label,
+            eng_kmer_coverage=eng_kmer_coverage,
+        ))
         return target_kmers, tot_kmers
 
-    def scan_engineered_blocks_kraken(self) -> EngineeredScanResult:
+    def scan_engineered_blocks_kraken(self) -> tuple[EngineeredScanResult, NDArray]:
         result = EngineeredScanResult()
         self._ensure_kraken_in_memory()
         kmer_max_by_read: dict[str, int] = {}
-        entries = self._kraken_lines
+        entries = self._kraken_lines or []
         target_kmers = np.zeros(len(entries))
         tot_kmers = np.zeros(len(entries))
         index = 0
         if not self.quiet_mode:
             for entry in tqdm(entries, total=len(entries)):
-                target_kmers[index], tot_kmers[index] = self.entry_logic(entry, kmer_max_by_read, result)
+                target_kmers[index], tot_kmers[index] = self.entry_logic(
+                    entry, kmer_max_by_read, result
+                )
                 index += 1
         else:
             for entry in entries:
-                target_kmers[index], tot_kmers[index] = self.entry_logic(entry, kmer_max_by_read, result)
-                index +=1
+                target_kmers[index], tot_kmers[index] = self.entry_logic(
+                    entry, kmer_max_by_read, result
+                )
+                index += 1
         logging.info(
             "Engineered k-mer scan complete: %s/%s synthetic reads.",
             result.synthetic_count,
             result.synthetic_count + result.natural_count,
         )
-        p_values, qvals, syn = call_synthetic_reads(target_kmers, tot_kmers, BACKGROUND_RATE, n_reads_total=len(entries),alpha=0.05)
+        p_values, _qvals, _syn = call_synthetic_reads(
+            target_kmers,
+            tot_kmers,
+            self.background_rate,
+            n_reads_total=len(entries),
+            alpha=0.05,
+        )
         return result, p_values
 
     def run_codon_adaptation(self, natural_read_ids: set[str]) -> CodonAdaptationResult:
         if not natural_read_ids:
             logging.info("No reads labeled Natural; skipping codon usage analysis.")
-            return []
+            return CodonAdaptationResult(labels=[])
 
         if self.run_diamond_enabled and self.diamond_db is None:
             raise ValueError(
@@ -400,11 +425,9 @@ class Workflow:
         return results
 
     def write_screen_result(self, per_read: List[ReadFlagDetail]) -> None:
-        header = (
-            "Label\tRead_ID\tMethods\tP-Value\tEng-Coverage Percentage"
-        )
-        with open(self.report_output_path, 'w') as write_obj:
-            write_obj.write(header+"\n")
+        header = "Label\tRead_ID\tMethods\tP-Value\tEng-Coverage Percentage"
+        with open(self.report_output_path, "w", encoding="utf-8") as write_obj:
+            write_obj.write(header + "\n")
             for read in per_read:
                 if read.engineered_overall:
                     line = "Engineered\t"
@@ -412,14 +435,14 @@ class Workflow:
                     line = "Natural\t"
                 line += read.read_id + "\t"
                 if read.engineered_by_kmer_scan:
-                    line += "engineered_kmers"
+                    line += "engineered_kmer_scan"
                 elif read.engineered_by_codon_cai:
-                    line += "codon_optimized"
+                    line += "codon_cai"
                 else:
                     line += "NA"
-                line += "\t" + f"{read.eng_kmer_coverage:.2%}"
                 line += "\t" + str(read.p_value)
-
+                coverage = read.eng_kmer_coverage if read.eng_kmer_coverage is not None else 0.0
+                line += "\t" + f"{coverage:.2%}"
                 write_obj.write(line + "\n")
 
     def run(self) -> ScreenResult:
@@ -428,7 +451,7 @@ class Workflow:
         engineered_scan, p_values = self.scan_engineered_blocks_kraken()
 
         codon_path: Path | None = None
-        codon_results: CodonAdaptationResult | None = None
+        codon_results = CodonAdaptationResult(labels=[])
         if self.run_codon_usage and engineered_scan.natural_read_ids:
             if engineered_scan.any_synthetic:
                 logging.info(
@@ -440,19 +463,16 @@ class Workflow:
                 len(engineered_scan.natural_read_ids),
                 self.codon_usage_dir,
             )
-            codon_results: CodonAdaptationResult = self.run_codon_adaptation(engineered_scan.natural_read_ids)
-        #  if self.codon_usage_output_path is not None:
-        #      codon_path_str = write_codon_adaptation_results_tsv(
-        #          self.codon_usage_output_path,
-        #          codon_results,
-        #          cai_engineered_threshold=self.codon_cai_engineered_threshold,
-        #      )
-        #      codon_path = Path(codon_path_str)
-        codon_by_read: dict[str, CodonAdaptationRead] | None = None
-        if codon_results is not None:
-            codon_by_read = {
-                r.read_id: r for r in codon_results.labels
-            }
+            codon_results = self.run_codon_adaptation(engineered_scan.natural_read_ids)
+            if self.codon_usage_output_path is not None:
+                codon_path_str = write_codon_adaptation_results_tsv(
+                    self.codon_usage_output_path,
+                    codon_results,
+                    cai_engineered_threshold=self.codon_cai_engineered_threshold,
+                )
+                codon_path = Path(codon_path_str)
+
+        codon_by_read = {r.read_id: r for r in codon_results.labels}
 
         kmer_max_by_read: dict[str, int] = {}
         if self._kraken_lines is not None:
@@ -461,20 +481,18 @@ class Workflow:
                 if len(parts) < 2:
                     continue
                 rid = parts[1]
-                _hit, max_eng, syn_kmers, total_kmers,syn_coverage = self.parse_and_run(
+                _hit, max_eng, _syn_kmers, _total_kmers, _syn_coverage = self.parse_and_run(
                     parts[-1], self.window_size, self.threshold, self.k, self.l,
                 )
                 kmer_max_by_read[rid] = max_eng
 
         per_read: list[ReadFlagDetail] = []
         for index, lbl in enumerate(engineered_scan.labels):
-            if codon_by_read is not None:
-                codon = codon_by_read.get(lbl.read_id)
-            else:
-                codon = None
+            codon = codon_by_read.get(lbl.read_id)
             cai = codon.cai_vs_host if codon else None
             engineered_by_codon: bool | None = None
             if cai is not None and self.codon_cai_engineered_threshold is not None:
+                # CAI above threshold flags engineered (codon optimization signal).
                 engineered_by_codon = cai > self.codon_cai_engineered_threshold
 
             engineered_by_kmer = lbl.label == "Synthetic"
@@ -485,12 +503,15 @@ class Workflow:
             overall_label: Literal["Natural", "Synthetic"] = (
                 "Synthetic" if engineered_overall else "Natural"
             )
+            kmer_label: Literal["Natural", "Synthetic"] = (
+                "Natural" if p_values[index] > 0.05 else lbl.label
+            )
 
             per_read.append(
                 ReadFlagDetail(
                     read_id=lbl.read_id,
-                    kmer_label=Literal["Natural"] if p_values[index] > 0.05 else lbl.label,
-                    eng_kmer_coverage = lbl.eng_kmer_coverage,
+                    kmer_label=kmer_label,
+                    eng_kmer_coverage=lbl.eng_kmer_coverage,
                     engineered_by_kmer_scan=engineered_by_kmer,
                     engineered_overall=engineered_overall,
                     overall_label=overall_label,
@@ -500,8 +521,7 @@ class Workflow:
                     cai_vs_host=cai,
                     engineered_by_codon_cai=engineered_by_codon,
                     codon_cai_threshold=self.codon_cai_engineered_threshold,
-                    p_value=p_values[index]
-
+                    p_value=float(p_values[index]),
                 )
             )
 

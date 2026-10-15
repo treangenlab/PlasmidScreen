@@ -27,3 +27,13 @@ class CodonReferenceNotFoundError(PlasmidScreenError):
             f"Codon usage reference not found at {data_dir}. "
             "Run build_codon_reference() on a networked machine first."
         )
+
+
+class KrakenError(PlasmidScreenError):
+    """Raised when the Kraken2 subprocess fails."""
+
+    def __init__(self, returncode: int, stderr: str | None = None) -> None:
+        self.returncode = returncode
+        self.stderr = stderr or ""
+        detail = f" (stderr: {self.stderr.strip()})" if self.stderr.strip() else ""
+        super().__init__(f"Kraken2 failed with exit code {returncode}{detail}")

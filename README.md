@@ -25,11 +25,11 @@ ran. If either are found to contain engineering, `ScreenResult` object will repo
 | Signal | Parameter | Counts toward overall engineered when |
 |--------|-----------|----------------------------------------|
 | K-mer scan | `--threshold`, `--window_size` | Engineered minimizers (taxid 32630) in a window ≥ threshold → k-mer **Synthetic** |
-| Codon CAI | `--codon-cai-threshold` (optional) | CAI &lt; threshold on a scored Natural read (requires codon step) |
+| Codon CAI | `--codon-cai-threshold` (optional) | CAI &gt; threshold on a scored Natural read (requires codon step) |
 
 
 - Without `--codon-cai-threshold`, overall matches the k-mer scan only (`engineered_scan.synthetic_count` == `overall_synthetic_count`).
-- With `--codon-cai-threshold`, a read can be k-mer **Natural** but overall **Synthetic** if CAI is low.
+- With `--codon-cai-threshold`, a read can be k-mer **Natural** but overall **Synthetic** if CAI is above the threshold.
 - Use **`screen_result.overall_synthetic_count`**, **`engineered_read_ids`**, and **`natural_read_ids_overall`** for run-level summaries (not only `engineered_scan.synthetic_count`).
 
 ### Library usage
@@ -80,10 +80,11 @@ for r in screen_result.per_read:
 
 ```bash
 # Default: import all taxids in the CSDB archive (~5.2 GB download on first run)
-python plasmidScreen.py build
+plasmid-screen build
+# (or: python -m plasmidScreen build / python plasmidScreen.py build)
 
 # Use an existing CSDB archive (no download)
-python plasmidScreen.py build \
+plasmid-screen build \
   --csdb-archive /data/codonstatsdb_March2022.tar.gz \
   --no-download-csdb
 
@@ -94,8 +95,11 @@ Output: `codon_usage/codon_tables.json` and `taxonomy_parents.json`.
 
 #### Installation
 ```bash
-pip install -r requirements.txt
+# Recommended (installs package + console script `plasmid-screen`)
+pip install -e ".[dev]"
 
+# Or dependencies only (then run with PYTHONPATH=. or python -m plasmidScreen)
+pip install -r requirements.txt
 ```
 
 
@@ -111,38 +115,44 @@ database is recommended. The suggested diamond database is composed of all UniRe
 ### CLI — screen
 
 ```bash
-python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db \
+plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
   --diamond-db /path/to/protein.dmnd \
   --codon-usage-dir ~/.local/share/PlasmidScreen/codon_usage \
   --codon-usage-output codon_usage.tsv
 
 # Reuse Kraken classifications (no Kraken subprocess)
-python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db \
+plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
   --no-run-kraken --kraken-output-path kraken.out \
   --diamond-db /path/to/protein.dmnd
 
 # Save DIAMOND TSV for debugging / codon-only reruns
-python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db \
+plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
   --diamond-db /path/to/protein.dmnd \
   --debug-write-diamond-out --diamond-output-path diamond.tsv
 
 # Re-run codon step from saved DIAMOND output
-python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db \
+plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
   --no-run-diamond --diamond-output-path diamond.tsv \
   --no-run-kraken --kraken-output-path kraken.out
 
-# Low CAI can flag overall engineered (on Natural reads with CAI scores)
-python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db \
+# CAI above threshold can flag overall engineered (on Natural reads with CAI scores)
+plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
   --diamond-db /path/to/protein.dmnd \
   --codon-cai-threshold 0.6 \
   --threshold 10
 
 # Engineered k-mer scan only (no codon / DIAMOND; overall == k-mer labels)
-python plasmidScreen.py screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage
+plasmid-screen screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage
 ```
 
 If a host taxid has no resolvable codon table, screening raises `MissingCodonReferenceError` — build or extend the reference first (no online fetch at runtime).
 
+
+#### Internal benchmarking (Felix T&E)
+
+Multi-DB / multi-setting batch evaluation lives under [`benchmarks/`](benchmarks/README.md)
+(`run_felix_benchmark.py` with YAML configs). It can run PlasmidScreen then
+score TP/FP/TN/FN + BLAST, or `--score-only` against existing reports.
 
 #### P-Value Documentation
 The output contains two columns representing the confidence that a given read is of engineered origin. The first column reports the percentage of k-mers classified as engineered out of all k-mers in the read. The second column provides a p-value estimating the probability of observing this fraction of engineered k-mers by chance.

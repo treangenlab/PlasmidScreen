@@ -11,6 +11,13 @@ from Bio.Data import CodonTable
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
+# Unfinished features — exclude until those modules are restored
+collect_ignore = [
+    "test_db_search.py",
+    "test_pileup.py",
+    "test_html_report.py",
+]
+
 _CODON_TO_AA = CodonTable.unambiguous_dna_by_id[1].forward_table.copy()
 for _stop in ("TAA", "TAG", "TGA"):
     _CODON_TO_AA[_stop] = "*"

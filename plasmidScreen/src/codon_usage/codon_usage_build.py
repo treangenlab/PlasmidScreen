@@ -26,7 +26,7 @@ def build_codon_reference(
         *,
         csdb_archive: str | Path | None = None,
         download_csdb: bool = True,
-        gene_set: GeneSet = "nuclear",
+        gene_set: GeneSet = GeneSet.NUCLEAR,
 ) -> BuildCodonReferenceResult:
     """
     Build codon_tables.json (and optional taxonomy_parents.json).

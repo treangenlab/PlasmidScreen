@@ -1,3 +1,5 @@
+# Prefer: pip install -e ".[dev]"
+# This file is kept for convenience / older workflows.
 biopython>=1.83
 numba>=0.58
 numpy>=1.24

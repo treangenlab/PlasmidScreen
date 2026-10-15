@@ -1,9 +1,18 @@
 """Shared type aliases and TypedDicts for PlasmidScreen."""
 from __future__ import annotations
 
+from enum import Enum
 from typing import Literal, TypedDict
 
-GeneSet = Literal["nuclear", "ribosomal", "mitochondrial", "plastid"]
+
+class GeneSet(str, Enum):
+    """CSDB gene-set categories used when building codon tables."""
+
+    NUCLEAR = "nuclear"
+    RIBOSOMAL = "ribosomal"
+    MITOCHONDRIAL = "mitochondrial"
+    PLASTID = "plastid"
+
 
 KrakenReadInfo = tuple[str, str, int, str]
 """Kraken2 row fields: (status, taxid, read_length, kmer_info)."""

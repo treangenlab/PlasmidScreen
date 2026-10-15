@@ -177,7 +177,7 @@ Effective k-mers per window: `window_size - 21 + 1` (Kraken k=21 minimizers in w
 | `run_diamond` | `--run-diamond` / `--no-run-diamond` | true | Run blastx vs load TSV |
 | `codon_usage_dir` | `--codon-usage-dir` | user data dir | Pre-built reference directory |
 | `include_read_ids` | (library) | all DIAMOND hits | Full screen passes Natural read IDs only |
-| `codon_cai_engineered_threshold` | `--codon-cai-threshold` | — | When set, CAI below this value flags `engineered_by_codon_cai` and can set `engineered_overall` |
+| `codon_cai_engineered_threshold` | `--codon-cai-threshold` | — | When set, CAI above this value flags `engineered_by_codon_cai` and can set `engineered_overall` |
 
 These parameters are copied onto `ScreenResult` (`engineered_kmer_threshold`, `engineered_kmer_window_size`, `codon_cai_engineered_threshold`) so consumers know which thresholds produced each run.
 
@@ -259,7 +259,7 @@ engineered_overall =
 | `engineered_read_ids` | Set of read IDs engineered overall |
 | `natural_read_ids_overall` | Set of read IDs natural overall |
 
-**Count mismatch:** `engineered_scan.synthetic_count` counts k-mer **Synthetic** reads only. `overall_synthetic_count` can be higher when `--codon-cai-threshold` flags additional Natural reads via low CAI.
+**Count mismatch:** `engineered_scan.synthetic_count` counts k-mer **Synthetic** reads only. `overall_synthetic_count` can be higher when `--codon-cai-threshold` flags additional Natural reads via high CAI.
 
 Use `compute_engineered_overall()` from the library to apply the same rule outside `run_screen`.
 
@@ -317,7 +317,7 @@ Per-read attribution and evidence for engineered calls.
 | `engineered_kmer_window_size` | int \| None | Window size used |
 | `cai_vs_host` | float \| None | CAI score vs host |
 | `codon_cai_threshold` | float \| None | Threshold used for codon CAI flagging |
-| `engineered_by_codon_cai` | bool \| None | `True` if CAI &lt; threshold; `False` if above; `None` if threshold unset or no CAI |
+| `engineered_by_codon_cai` | bool \| None | `True` if CAI &gt; threshold; `False` if at/below; `None` if threshold unset or no CAI |
 | `engineered_overall` | bool | Combined decision (see §3.4) |
 | `overall_label` | `"Natural"` \| `"Synthetic"` | Human-readable combined label |
 | `engineered_methods` | list[str] (property) | Contributing methods: `engineered_kmer_scan`, `codon_cai` |
@@ -352,7 +352,7 @@ Per-read attribution and evidence for engineered calls.
 
 - Populated in `Workflow.run()` for every read in `engineered_scan.labels`.
 - **K-mer component:** `engineered_by_kmer_scan` is `True` when `kmer_label == "Synthetic"` (threshold `--threshold`, window `--window_size`).
-- **Codon component:** only evaluated when `codon_cai_engineered_threshold` is set on the workflow. For Natural reads with a CAI score, `engineered_by_codon_cai = (cai_vs_host < threshold)`. Reads without CAI (e.g. k-mer Synthetic, or no DIAMOND hit) keep `engineered_by_codon_cai=None`.
+- **Codon component:** only evaluated when `codon_cai_engineered_threshold` is set on the workflow. For Natural reads with a CAI score, `engineered_by_codon_cai = (cai_vs_host > threshold)`. Reads without CAI (e.g. k-mer Synthetic, or no DIAMOND hit) keep `engineered_by_codon_cai=None`.
 - **Overall:** `engineered_overall` is `True` if either component is `True`; `overall_label` is `"Synthetic"` or `"Natural"` accordingly.
 - When `--codon-cai-threshold` is omitted, `engineered_overall` equals `engineered_by_kmer_scan` for all reads.
 

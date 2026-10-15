@@ -36,6 +36,12 @@ def parse_kraken_lines(lines: Iterable[str]) -> dict[str, KrakenReadInfo]:
     return kraken_data
 
 
+def parse_kraken_file(path: Union[str, Path]) -> dict[str, KrakenReadInfo]:
+    """Parse a Kraken2 classifications file into read_id → fields."""
+    text = Path(path).read_text(encoding="utf-8")
+    return parse_kraken_lines(text.splitlines())
+
+
 def compute_cai(cds_seq: str, weights: dict[str, float]) -> float:
     """Sharp & Li CAI: geometric mean of per-codon adaptiveness weights (in-frame triplets)."""
     log_w_sum = 0.0
@@ -48,61 +54,107 @@ def compute_cai(cds_seq: str, weights: dict[str, float]) -> float:
     return math.exp(log_w_sum / codon_count) if codon_count > 0 else 0.0
 
 
-#def codon_adaptation_to_tsv_lines(results: Iterable[CodonAdaptationResult]) -> list[str]:
-#    """Format codon results as TSV lines (header + one row per result)."""
-#    header = (
-#        "Read_ID\tCDS_Strand\tCDS_Range\tHost_TaxID\t"
-#        "Reference_TaxID\tCDS_Len_bp\tCAI_vs_Host"
-#    )
-#    lines = [header]
-#    for r in results:
-#        cai = f"{r.cai_vs_host:.4f}" if r.cai_vs_host is not None else "NA"
-#        ref = r.reference_taxid or "NA"
-#        lines.append(
-#            f"{r.read_id}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
-#            f"{r.host_taxid}\t{ref}\t{r.cds_len_bp}\t{cai}"
-#        )
-#    return lines
+def _iter_codon_reads(
+        results: CodonAdaptationResult | Iterable[CodonAdaptationRead],
+) -> Iterable[CodonAdaptationRead]:
+    if isinstance(results, CodonAdaptationResult):
+        return results.labels
+    return results
 
 
-#def write_codon_adaptation_results_tsv(
-#        output_path: Union[str, Path],
-#        results: Iterable[CodonAdaptationResult],
-#        *,
-#        cai_engineered_threshold: Optional[float] = None,
-#) -> str:
-#    """
-#    Write codon adaptation results to a TSV file.
+def codon_adaptation_to_tsv_lines(
+        results: CodonAdaptationResult | Iterable[CodonAdaptationRead],
+) -> list[str]:
+    """Format codon results as TSV lines (header + one row per result)."""
+    header = (
+        "Read_ID\tCDS_Strand\tCDS_Range\tHost_TaxID\t"
+        "Reference_TaxID\tCDS_Len_bp\tCAI_vs_Host"
+    )
+    lines = [header]
+    for r in _iter_codon_reads(results):
+        cai = f"{r.cai_vs_host:.4f}" if r.cai_vs_host is not None else "NA"
+        ref = r.reference_taxid or "NA"
+        lines.append(
+            f"{r.read_id}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
+            f"{r.host_taxid}\t{ref}\t{r.cds_len_bp}\t{cai}"
+        )
+    return lines
 
-#    When ``cai_engineered_threshold`` is set, adds columns for threshold-based
-#    engineered flagging (used by the full ``screen`` workflow).
-#    """
-#    out = Path(output_path)
-#    out.parent.mkdir(parents=True, exist_ok=True)
-#    with out.open("w", encoding="utf-8") as f:
-#        if cai_engineered_threshold is None:
-#            for line in codon_adaptation_to_tsv_lines(results):
-#                f.write(line + "\n")
-#        else:
-#            header = (
-#                "Read_ID\tCDS_Strand\tCDS_Range\tHost_TaxID\t"
-#                "Reference_TaxID\tCDS_Len_bp\tCAI_vs_Host\t"
-#                "Codon_CAI_Threshold\tEngineered_By_Codon_CAI"
-#            )
-#            f.write(header + "\n")
-#            for r in results:
-#                cai = r.cai_vs_host
-#                cai_s = f"{cai:.4f}" if cai is not None else "NA"
-#                engineered = (
-#                    "NA" if cai is None else str(cai < cai_engineered_threshold)
-#                )
-#                ref = r.reference_taxid or "NA"
-#                f.write(
-#                    f"{r.read_id}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
-#                    f"{r.host_taxid}\t{ref}\t{r.cds_len_bp}\t"
-#                    f"{cai_s}\t{cai_engineered_threshold}\t{engineered}\n"
-#                )
-#    return str(out)
+
+def write_codon_adaptation_results_tsv(
+        output_path: Union[str, Path],
+        results: CodonAdaptationResult | Iterable[CodonAdaptationRead],
+        *,
+        cai_engineered_threshold: Optional[float] = None,
+) -> str:
+    """
+    Write codon adaptation results to a TSV file.
+
+    When ``cai_engineered_threshold`` is set, adds columns for threshold-based
+    engineered flagging (used by the full ``screen`` workflow).
+    """
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as f:
+        if cai_engineered_threshold is None:
+            for line in codon_adaptation_to_tsv_lines(results):
+                f.write(line + "\n")
+        else:
+            header = (
+                "Read_ID\tCDS_Strand\tCDS_Range\tHost_TaxID\t"
+                "Reference_TaxID\tCDS_Len_bp\tCAI_vs_Host\t"
+                "Codon_CAI_Threshold\tEngineered_By_Codon_CAI"
+            )
+            f.write(header + "\n")
+            for r in _iter_codon_reads(results):
+                cai = r.cai_vs_host
+                cai_s = f"{cai:.4f}" if cai is not None else "NA"
+                engineered = (
+                    "NA" if cai is None else str(cai > cai_engineered_threshold)
+                )
+                ref = r.reference_taxid or "NA"
+                f.write(
+                    f"{r.read_id}\t{r.cds_strand}\t{r.cds_start}-{r.cds_end}\t"
+                    f"{r.host_taxid}\t{ref}\t{r.cds_len_bp}\t"
+                    f"{cai_s}\t{cai_engineered_threshold}\t{engineered}\n"
+                )
+    return str(out)
+
+
+def write_codon_adaptation_tsv(
+        output_path: Union[str, Path],
+        reads_path: Union[str, Path],
+        *,
+        diamond_db: Union[str, Path] | None = None,
+        diamond_threads: int = 4,
+        mem_mode: int = 0,
+        run_diamond: bool = True,
+        diamond_output_path: Union[str, Path] | None = None,
+        debug_write_diamond_output: bool = False,
+        codon_usage_store: Optional[CodonUsageStore] = None,
+        codon_usage_dir: Optional[Union[str, Path]] = None,
+        include_read_ids: Optional[set[str]] = None,
+        cai_engineered_threshold: Optional[float] = None,
+) -> tuple[str, CodonAdaptationResult]:
+    """Run codon adaptation analysis and write results to a TSV file."""
+    results, _diamond_path = analyze_codon_adaptation(
+        reads_path,
+        diamond_db=diamond_db,
+        diamond_threads=diamond_threads,
+        mem_mode=mem_mode,
+        run_diamond=run_diamond,
+        diamond_output_path=diamond_output_path,
+        debug_write_diamond_output=debug_write_diamond_output,
+        codon_usage_store=codon_usage_store,
+        codon_usage_dir=codon_usage_dir,
+        include_read_ids=include_read_ids,
+    )
+    path = write_codon_adaptation_results_tsv(
+        output_path,
+        results,
+        cai_engineered_threshold=cai_engineered_threshold,
+    )
+    return path, results
 
 
 def analyze_codon_adaptation(
@@ -202,7 +254,7 @@ def analyze_codon_adaptation(
         pending.append((read_id, cds, host_taxid))
 
     host_taxids = {p[2] for p in pending if p[2] not in ("0", "")}
-    #store.require_host_taxids(host_taxids)
+    store.require_host_taxids(host_taxids)
 
     results: CodonAdaptationResult = CodonAdaptationResult(labels=[])
     for read_id, cds, host_taxid in pending:

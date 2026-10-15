@@ -139,8 +139,8 @@ def resolve_diamond_lines(
 def run_diamond_blastx(
         reads_path: str | Path,
         diamond_db: str | Path,
-        threads: int,
-        mem_mode: int,
+        threads: int = 4,
+        mem_mode: int = 0,
         output_path: str | Path | None = None,
 ) -> list[str]:
     """Run DIAMOND blastx; ORF detection is built in (--min-orf)."""

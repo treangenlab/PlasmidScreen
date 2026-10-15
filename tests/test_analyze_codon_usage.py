@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from plasmidScreen.lib.exceptions import MissingCodonReferenceError
+from plasmidScreen.lib.models import CodonAdaptationRead
 from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
     codon_adaptation_to_tsv_lines,
@@ -70,7 +71,7 @@ def test_analyze_skips_reads_without_diamond_hits(
         codon_usage_dir=codon_store_dir,
         include_read_ids={"read_unclassified"},
     )
-    assert results == []
+    assert len(results) == 0
 
 
 @patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
@@ -117,9 +118,7 @@ def test_write_tsv_roundtrip(
 
 
 def test_tsv_lines_match_results() -> None:
-    from plasmidScreen.lib.models import CodonAdaptationResult
-
-    row = CodonAdaptationResult(
+    row = CodonAdaptationRead(
         read_id="r1",
         cds_strand="+",
         cds_start=0,
@@ -132,3 +131,38 @@ def test_tsv_lines_match_results() -> None:
     lines = codon_adaptation_to_tsv_lines([row])
     assert len(lines) == 2
     assert "0.5000" in lines[1]
+
+
+def test_write_results_tsv_with_cai_threshold_columns(tmp_path: Path) -> None:
+    from plasmidScreen.src.analyze_codon_usage import write_codon_adaptation_results_tsv
+
+    rows = [
+        CodonAdaptationRead(
+            read_id="high",
+            cds_strand="+",
+            cds_start=0,
+            cds_end=12,
+            host_taxid="562",
+            reference_taxid="562",
+            cds_len_bp=12,
+            cai_vs_host=0.9,
+        ),
+        CodonAdaptationRead(
+            read_id="low",
+            cds_strand="+",
+            cds_start=0,
+            cds_end=12,
+            host_taxid="562",
+            reference_taxid="562",
+            cds_len_bp=12,
+            cai_vs_host=0.2,
+        ),
+    ]
+    out = tmp_path / "codon_thr.tsv"
+    write_codon_adaptation_results_tsv(out, rows, cai_engineered_threshold=0.6)
+    text = out.read_text()
+    header = text.splitlines()[0]
+    assert "Codon_CAI_Threshold" in header
+    assert "Engineered_By_Codon_CAI" in header
+    assert "high\t" in text and "True" in text.splitlines()[1]
+    assert "low\t" in text and "False" in text.splitlines()[2]

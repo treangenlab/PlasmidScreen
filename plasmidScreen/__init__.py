@@ -19,7 +19,10 @@ from plasmidScreen.lib.models import (
     compute_engineered_overall,
 )
 
+__version__ = "0.1.0"
+
 __all__ = [
+    "__version__",
     "build_codon_database",
     "run_screen",
     "BuildCodonReferenceResult",
@@ -33,5 +36,5 @@ __all__ = [
     "ScreenResult",
     "compute_engineered_overall",
     "build_codon_reference",
-    "analyze_codon_adaptation"
+    "analyze_codon_adaptation",
 ]
