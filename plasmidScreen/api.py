@@ -61,7 +61,7 @@ def run_screen(
     Parameters
     ----------
     fasta_file
-        Input FASTA/FASTQ path.
+        Input FASTA/FASTQ path (plain or gzip-compressed ``.gz``).
     kraken_db
         Kraken2 database directory (required when ``run_kraken=True``).
     engineered_report_path

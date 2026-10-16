@@ -114,6 +114,9 @@ database is recommended. The suggested diamond database is composed of all UniRe
 
 ### CLI — screen
 
+Input reads may be plain or gzip-compressed FASTA/FASTQ
+(`.fa`, `.fasta`, `.fq`, `.fastq`, and the same with `.gz`).
+
 ```bash
 plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
   --diamond-db /path/to/protein.dmnd \

@@ -39,7 +39,7 @@ flowchart LR
 
 | Property | Requirement |
 |----------|-------------|
-| Formats | `.fa`, `.fasta`, `.fq`, `.fastq` (suffix-based detection) |
+| Formats | `.fa`, `.fasta`, `.fq`, `.fastq`, plus gzip (`.gz`) e.g. `.fasta.gz`, `.fastq.gz` |
 | Encoding | Nucleotides A/C/G/T (case-insensitive; uppercased internally) |
 | Read IDs | Must match Kraken2 column 2 and DIAMOND `qseqid` (first token in FASTA header) |
 
