@@ -1,0 +1,364 @@
+"""PlasmidScreen command-line interface."""
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Annotated
+
+import typer
+
+from plasmidScreen.api import run_screen
+from plasmidScreen.lib.exceptions import PlasmidScreenError
+from plasmidScreen.lib.funcs import get_default_db_path
+from plasmidScreen.lib.logging_util import configure_logging
+from plasmidScreen.lib.models import BACKGROUND_RATE
+from plasmidScreen.lib.types import GeneSet
+from plasmidScreen.src.codon_usage.codon_usage_build import build_codon_reference
+from plasmidScreen.src.codon_usage.codon_usage_db import default_codon_usage_dir
+from plasmidScreen.src.codon_usage.codon_usage_sources import default_csdb_archive_path
+
+app = typer.Typer(
+    pretty_exceptions_show_locals=False,
+    help=(
+        "PlasmidScreen: Kraken2 engineered k-mer screening and optional "
+        "DIAMOND + codon adaptation (CAI) analysis."
+    ),
+)
+
+DEFAULT_DB_PATH = get_default_db_path("PlasmidScreen")
+DEFAULT_CODON_USAGE_DIR = str(default_codon_usage_dir())
+logger = logging.getLogger(__name__)
+
+
+def _exit_on_error(exc: BaseException) -> None:
+    """Log a user-facing error and exit with code 1."""
+    logger.error("%s", exc)
+    raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def screen(
+        ctx: typer.Context,
+        fasta_file: Annotated[
+            str,
+            typer.Argument(help="Input FASTA/FASTQ (plain or .gz)"),
+        ],
+        output_report_path: Annotated[
+            str, typer.Argument(help="Engineered k-mer scan report TSV path")
+        ],
+        kraken_output_path: Annotated[
+            str | None,
+            typer.Option(
+                "--kraken-output-path",
+                help=(
+                    "Optional path to read/write raw Kraken2 classifications. "
+                    "Required when --run-kraken=false or when "
+                    "--debug-write-kraken-out is set."
+                ),
+            ),
+        ] = None,
+        window_size: Annotated[
+            int,
+            typer.Option(
+                "--window_size", help="Window size to scan for engineered k-mers"
+            ),
+        ] = 200,
+        engineered_k_mer_threshold: Annotated[
+            int,
+            typer.Option(
+                "--threshold",
+                help="Threshold of required identified engineered DNA.",
+            ),
+        ] = 10,
+        codon_usage_output: Annotated[
+            str | None,
+            typer.Option(
+                "--codon-usage-output",
+                help=(
+                    "Optional codon usage TSV output path. Only produced for "
+                    "reads labeled Natural."
+                ),
+            ),
+        ] = None,
+        codon_usage_dir: Annotated[
+            str,
+            typer.Option(
+                "--codon-usage-dir",
+                help="Directory with codon_tables.json reference data.",
+            ),
+        ] = DEFAULT_CODON_USAGE_DIR,
+        codon_cai_engineered_threshold: Annotated[
+            float | None,
+            typer.Option(
+                "--codon-cai-threshold",
+                help=(
+                    "If set, Natural reads with CAI above this value are "
+                    "engineered_overall in ScreenResult (library)."
+                ),
+            ),
+        ] = None,
+        diamond_db: Annotated[
+            str | None,
+            typer.Option(
+                "--diamond-db",
+                help=(
+                    "DIAMOND database (.dmnd) used to infer ORFs/host taxid "
+                    "for codon CAI. Required when codon usage is enabled."
+                ),
+            ),
+        ] = None,
+        diamond_output_path: Annotated[
+            str | None,
+            typer.Option(
+                "--diamond-output-path",
+                help=(
+                    "Save/load DIAMOND outfmt 6 TSV. Required with "
+                    "--debug-write-diamond-out or --no-run-diamond."
+                ),
+            ),
+        ] = None,
+        debug_write_diamond_out: Annotated[
+            bool,
+            typer.Option(
+                "--debug-write-diamond-out",
+                help="Write DIAMOND TSV to --diamond-output-path (debug/reuse).",
+            ),
+        ] = False,
+        run_diamond: Annotated[
+            bool,
+            typer.Option(
+                "--run-diamond/--no-run-diamond",
+                help=(
+                    "Run DIAMOND blastx (default). If disabled, "
+                    "--diamond-output-path must exist."
+                ),
+            ),
+        ] = True,
+        skip_codon_usage: Annotated[
+            bool,
+            typer.Option(
+                "--skip-codon-usage",
+                help="Skip codon adaptation/CAI analysis (engineered k-mer scan only).",
+            ),
+        ] = False,
+        debug_write_kraken_out: Annotated[
+            bool,
+            typer.Option(
+                "--debug-write-kraken-out",
+                help="Write raw Kraken2 classifications to --kraken-output-path (debug).",
+            ),
+        ] = False,
+        debug_write_kraken_report: Annotated[
+            bool,
+            typer.Option(
+                "--debug-write-kraken-report",
+                help="Write Kraken2 --report file (debug).",
+            ),
+        ] = False,
+        run_kraken: Annotated[
+            bool,
+            typer.Option(
+                "--run-kraken/--no-run-kraken",
+                help=(
+                    "Run Kraken2 as part of the pipeline (default). If disabled, "
+                    "--kraken-output-path must point to an existing classifications file."
+                ),
+            ),
+        ] = True,
+        kraken_db_path: Annotated[
+            str, typer.Argument(help="Kraken2 database path")
+        ] = DEFAULT_DB_PATH,
+        threads: Annotated[
+            int, typer.Option("--threads", help="Available threads to use.")
+        ] = 4,
+        background_rate: Annotated[
+            float,
+            typer.Option(
+                "--bg", help="Background rate to set for p-value calculation"
+            ),
+        ] = BACKGROUND_RATE,
+        mem_mode: Annotated[
+            int,
+            typer.Option(
+                "--mem-mode",
+                help=(
+                    "Memory configuration bins: low(0)=32GB, medium(1)=64GB, "
+                    "high(2)=128GB RAM"
+                ),
+            ),
+        ] = 0,
+        quiet: Annotated[
+            bool,
+            typer.Option(
+                "--quiet",
+                "-q",
+                help="Suppress progress bars and INFO logs (warnings/errors only).",
+            ),
+        ] = False,
+) -> None:
+    configure_logging(quiet=quiet, force=True)
+    if not run_kraken and not kraken_output_path:
+        raise typer.BadParameter(
+            "--kraken-output-path is required when --no-run-kraken is set"
+        )
+    if debug_write_kraken_out and not kraken_output_path:
+        raise typer.BadParameter(
+            "--kraken-output-path is required when --debug-write-kraken-out is set"
+        )
+    if not skip_codon_usage:
+        if run_diamond and not diamond_db:
+            raise typer.BadParameter(
+                "--diamond-db is required when codon usage is enabled "
+                "(use --skip-codon-usage to disable)."
+            )
+        if not run_diamond and not diamond_output_path:
+            raise typer.BadParameter(
+                "--diamond-output-path is required when --no-run-diamond is set"
+            )
+        if debug_write_diamond_out and not diamond_output_path:
+            raise typer.BadParameter(
+                "--diamond-output-path is required when --debug-write-diamond-out is set"
+            )
+    try:
+        result = run_screen(
+            fasta_file,
+            kraken_db_path,
+            engineered_report_path=output_report_path,
+            kraken_output_path=kraken_output_path,
+            threads=threads,
+            window_size=window_size,
+            engineered_kmer_threshold=engineered_k_mer_threshold,
+            codon_usage_output_path=codon_usage_output,
+            codon_usage_dir=codon_usage_dir,
+            codon_cai_engineered_threshold=codon_cai_engineered_threshold,
+            run_codon_usage=not skip_codon_usage,
+            debug_write_kraken_output=debug_write_kraken_out,
+            debug_write_kraken_report=debug_write_kraken_report,
+            run_kraken=run_kraken,
+            diamond_db=diamond_db,
+            diamond_output_path=diamond_output_path,
+            debug_write_diamond_output=debug_write_diamond_out,
+            run_diamond=run_diamond,
+            background_rate=background_rate,
+            memory_mode=mem_mode,
+            quiet_mode=quiet,
+        )
+    except (PlasmidScreenError, FileNotFoundError, OSError, ValueError) as exc:
+        _exit_on_error(exc)
+        return  # pragma: no cover — typer.Exit above
+
+    if not quiet:
+        n_eng = result.overall_synthetic_count
+        n_total = len(result.per_read)
+        logger.info(
+            "Screen complete: %d/%d read(s) engineered overall → %s",
+            n_eng,
+            n_total,
+            output_report_path,
+        )
+
+
+def _parse_taxids(taxids: str | None, taxids_file: Path | None) -> list[str]:
+    found: set[str] = set()
+    if taxids:
+        found.update(t.strip() for t in taxids.split(",") if t.strip())
+    if taxids_file:
+        try:
+            text = taxids_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise typer.BadParameter(
+                f"Could not read --taxids-file {taxids_file}: {exc}"
+            ) from exc
+        for line in text.splitlines():
+            line = line.strip().split("#")[0].strip()
+            if line:
+                found.add(line)
+    return sorted(found)
+
+
+@app.command()
+def build(
+        output_dir: Path | None = typer.Option(
+            None,
+            "--output-dir",
+            "-o",
+            help="Directory for codon_tables.json and taxonomy_parents.json",
+        ),
+        taxids: str | None = typer.Option(
+            None, "--taxids", help="Comma-separated NCBI taxonomy IDs"
+        ),
+        taxids_file: Path | None = typer.Option(
+            None, "--taxids-file", help="One taxid per line"
+        ),
+        csdb_archive: Path | None = typer.Option(
+            None,
+            "--csdb-archive",
+            help="Path to codonstatsdb_March2022.tar.gz (default: PlasmidScreen data dir)",
+        ),
+        no_download_csdb: bool = typer.Option(
+            False,
+            "--no-download-csdb",
+            help="Do not download CSDB; require --csdb-archive to exist",
+        ),
+        gene_set: GeneSet = typer.Option(
+            GeneSet.NUCLEAR,
+            "--gene-set",
+            help="CSDB gene set: nuclear, ribosomal, mitochondrial, or plastid",
+        ),
+        quiet: bool = typer.Option(
+            False,
+            "--quiet",
+            "-q",
+            help="Suppress INFO logs (warnings/errors only).",
+        ),
+) -> None:
+    """Build codon usage tables from the Codon Statistics Database for airgapped CAI scoring."""
+    configure_logging(quiet=quiet, force=True)
+    data_dir = output_dir or default_codon_usage_dir()
+    archive = csdb_archive or default_csdb_archive_path()
+
+    taxid_list = _parse_taxids(taxids, taxids_file)
+
+    if not quiet:
+        if taxid_list:
+            logger.info(
+                "Building codon reference at %s for %d taxid(s) from CSDB archive %s",
+                data_dir,
+                len(taxid_list),
+                archive,
+            )
+        else:
+            logger.info(
+                "Building codon reference at %s for all taxids in CSDB archive %s",
+                data_dir,
+                archive,
+            )
+
+    try:
+        result = build_codon_reference(
+            data_dir,
+            taxid_list or None,
+            csdb_archive=archive,
+            download_csdb=not no_download_csdb,
+            gene_set=gene_set,
+        )
+    except (PlasmidScreenError, FileNotFoundError, OSError, ValueError, RuntimeError) as exc:
+        _exit_on_error(exc)
+
+    if not quiet:
+        logger.info(
+            "Done. added=%d skipped=%d failed=%d → %s",
+            len(result.taxids_added),
+            len(result.taxids_skipped),
+            len(result.taxids_failed),
+            result.data_dir / "codon_tables.json",
+        )
+
+
+@app.callback()
+def main() -> None:
+    pass
+
+
+if __name__ == "__main__":
+    app()

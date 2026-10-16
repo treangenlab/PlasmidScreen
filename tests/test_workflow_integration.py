@@ -183,6 +183,7 @@ def test_run_kraken_enabled_calls_subprocess(
     mock_proc.stdout = sample_kraken_out.read_text()
     mock_subprocess.return_value = mock_proc
     report = tmp_path / "report.txt"
+    (tmp_path / "kraken_db").mkdir()
     wf = Workflow(
         str(sample_fasta),
         str(report),
@@ -212,6 +213,7 @@ def test_run_kraken_debug_writes_output_flag(
     kraken_out = tmp_path / "kraken.out"
     kraken_out.write_text(sample_kraken_out.read_text())
     mock_subprocess.return_value = MagicMock(stdout="")
+    (tmp_path / "kraken_db").mkdir()
     wf = Workflow(
         str(sample_fasta),
         str(tmp_path / "report.txt"),

@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 from tqdm import tqdm
 
 from plasmidScreen.lib.funcs import call_synthetic_reads
-from plasmidScreen.lib.exceptions import KrakenError
+from plasmidScreen.lib.exceptions import InputError, KrakenError
 
 try:
     from numba import jit
@@ -155,7 +155,6 @@ class Workflow:
         self.run_codon_usage = run_codon_usage
         self.codon_cai_engineered_threshold = codon_cai_engineered_threshold
         self._kraken_lines = None
-        self._kraken_data = None
         self.diamond_db = Path(diamond_db) if diamond_db else None
         self.diamond_threads = self.max_threads
         self.diamond_output_path = (
@@ -168,44 +167,76 @@ class Workflow:
         self.mem_mode = mem_mode
         self.background_rate: float = background_rate
 
+    def _validate_inputs(self) -> None:
+        if not self.fasta_file.is_file():
+            raise InputError(f"Input sequence file not found: {self.fasta_file}")
+        if self.run_kraken_enabled:
+            if not self.kraken_db.is_dir():
+                raise InputError(f"Kraken2 database directory not found: {self.kraken_db}")
+        else:
+            if self.kraken_output_path is None:
+                raise InputError(
+                    "kraken_output_path is required when run_kraken=False."
+                )
+            if not self.kraken_output_path.is_file():
+                raise InputError(
+                    f"Kraken classifications file not found: {self.kraken_output_path}"
+                )
+
     def _ensure_kraken_in_memory(self) -> None:
-        if self._kraken_lines is not None and self._kraken_data is not None:
+        if self._kraken_lines is not None:
             return
         if self.kraken_output_path and self.kraken_output_path.exists():
-            lines = self.kraken_output_path.read_text(encoding="utf-8").splitlines(True)
+            try:
+                lines = self.kraken_output_path.read_text(encoding="utf-8").splitlines(
+                    True
+                )
+            except OSError as exc:
+                raise InputError(
+                    f"Could not read Kraken classifications {self.kraken_output_path}: {exc}"
+                ) from exc
             self._kraken_lines = lines
-            self._kraken_data = parse_kraken_lines(lines)
+            logging.info(
+                "Loaded %d Kraken classification line(s) from %s",
+                len(lines),
+                self.kraken_output_path,
+            )
+            return
+        raise InputError(
+            "No Kraken classifications available. Run Kraken2 or provide "
+            "an existing --kraken-output-path."
+        )
 
     def run_kraken(self) -> None:
+        logging.info("Running Kraken on %s", self.fasta_file)
+        if self.debug_write_kraken_output and self.kraken_output_path is None:
+            raise ValueError(
+                "debug_write_kraken_output=True requires kraken_output_path to be set."
+            )
+        cmd = [
+            "kraken2",
+            "--db",
+            str(self.kraken_db),
+            "--report-minimizer-data",
+            "--use-names",
+            str(self.fasta_file),
+            "--threads",
+            str(self.max_threads),
+        ]
+
+        # Raw Kraken output: in-memory by default (Kraken2 writes classifications to stdout
+        # when --output is omitted); write to kraken_output_path only in debug mode.
+        if self.debug_write_kraken_output:
+            cmd += ["--output", str(self.kraken_output_path)]
+
+        # Kraken report file: debug-only.
+        if self.debug_write_kraken_report:
+            report_file_path = self.kraken_db.parent.joinpath("report.txt")
+            cmd += ["--report", str(report_file_path)]
+
+        logging.info("Running the command: %s", " ".join(cmd))
+
         try:
-            logging.info("Running Kraken on %s", self.fasta_file)
-            if self.debug_write_kraken_output and self.kraken_output_path is None:
-                raise ValueError(
-                    "debug_write_kraken_output=True requires kraken_output_path to be set."
-                )
-            cmd = [
-                "kraken2",
-                "--db",
-                str(self.kraken_db),
-                "--report-minimizer-data",
-                "--use-names",
-                str(self.fasta_file),
-                "--threads",
-                str(self.max_threads),
-            ]
-
-            # Raw Kraken output: in-memory by default (Kraken2 writes classifications to stdout
-            # when --output is omitted); write to kraken_output_path only in debug mode.
-            if self.debug_write_kraken_output:
-                cmd += ["--output", str(self.kraken_output_path)]
-
-            # Kraken report file: debug-only.
-            if self.debug_write_kraken_report:
-                report_file_path = self.kraken_db.parent.joinpath("report.txt")
-                cmd += ["--report", str(report_file_path)]
-
-            logging.info("Running the command: %s", " ".join(cmd))
-
             if self.debug_write_kraken_output:
                 subprocess.run(cmd, check=True, capture_output=True, text=True)
                 self._ensure_kraken_in_memory()
@@ -213,13 +244,18 @@ class Workflow:
                 proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
                 lines = proc.stdout.splitlines(True)
                 self._kraken_lines = lines
-                self._kraken_data = parse_kraken_lines(lines)
+        except FileNotFoundError as e:
+            logging.error("Kraken2 executable not found on PATH")
+            raise KrakenError(
+                127,
+                "kraken2 executable not found; is Kraken2 installed and on PATH?",
+            ) from e
         except subprocess.CalledProcessError as e:
             logging.error(
                 "Kraken2 failed (Code %s). Error details: %s", e.returncode, e.stderr
             )
             raise KrakenError(e.returncode, e.stderr) from e
-        logging.info("All files processed.")
+        logging.info("Kraken2 finished; classifications ready.")
 
     @staticmethod
     def parse_and_run(
@@ -427,27 +463,42 @@ class Workflow:
         return results
 
     def write_screen_result(self, per_read: List[ReadFlagDetail]) -> None:
+        if self.report_output_path is None:
+            return
         header = "Label\tRead_ID\tMethods\tP-Value\tEng-Coverage Percentage"
-        with open(self.report_output_path, "w", encoding="utf-8") as write_obj:
-            write_obj.write(header + "\n")
-            for read in per_read:
-                if read.engineered_overall:
-                    line = "Engineered\t"
-                else:
-                    line = "Natural\t"
-                line += read.read_id + "\t"
-                if read.engineered_by_kmer_scan:
-                    line += "engineered_kmer_scan"
-                elif read.engineered_by_codon_cai:
-                    line += "codon_cai"
-                else:
-                    line += "NA"
-                line += "\t" + str(read.p_value)
-                coverage = read.eng_kmer_coverage if read.eng_kmer_coverage is not None else 0.0
-                line += "\t" + f"{coverage:.2%}"
-                write_obj.write(line + "\n")
+        try:
+            self.report_output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.report_output_path, "w", encoding="utf-8") as write_obj:
+                write_obj.write(header + "\n")
+                for read in per_read:
+                    if read.engineered_overall:
+                        line = "Engineered\t"
+                    else:
+                        line = "Natural\t"
+                    line += read.read_id + "\t"
+                    if read.engineered_by_kmer_scan:
+                        line += "engineered_kmer_scan"
+                    elif read.engineered_by_codon_cai:
+                        line += "codon_cai"
+                    else:
+                        line += "NA"
+                    line += "\t" + str(read.p_value)
+                    coverage = (
+                        read.eng_kmer_coverage
+                        if read.eng_kmer_coverage is not None
+                        else 0.0
+                    )
+                    line += "\t" + f"{coverage:.2%}"
+                    write_obj.write(line + "\n")
+        except OSError as exc:
+            logging.error("Failed to write report %s: %s", self.report_output_path, exc)
+            raise InputError(
+                f"Could not write engineered report {self.report_output_path}: {exc}"
+            ) from exc
+        logging.info("Wrote engineered report to %s", self.report_output_path)
 
     def run(self) -> ScreenResult:
+        self._validate_inputs()
         if self.run_kraken_enabled:
             self.run_kraken()
         engineered_scan, p_values, kmer_max_by_read = self.scan_engineered_blocks_kraken()

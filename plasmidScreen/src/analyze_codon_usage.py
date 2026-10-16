@@ -296,24 +296,31 @@ def analyze_codon_adaptation(
         )
         orfs_by_read, host_by_read = infer_orfs_and_host_taxids(diamond_lines)
         pending: list[tuple[str, CdsOrf, str]] = []
+        n_seen = 0
+        n_no_host = 0
+        n_no_orf = 0
 
         with open_text_maybe_gzip(seq_source) as seq_handle:
             for record in SeqIO.parse(seq_handle, file_format):
                 read_id = record.id
                 if include_read_ids is not None and read_id not in include_read_ids:
                     continue
+                n_seen += 1
                 host_taxid = host_by_read.get(read_id)
                 if not host_taxid:
+                    n_no_host += 1
                     continue
 
                 orfs = orfs_by_read.get(read_id) or []
                 if not orfs:
+                    n_no_orf += 1
                     continue
 
                 best = max(orfs, key=lambda o: (o.length_bp, o.end))
                 seq_str = str(record.seq).upper()
                 cds_seq = seq_str[best.start: best.end]
                 if len(cds_seq) < 3:
+                    n_no_orf += 1
                     continue
 
                 cds: CdsOrf = {
@@ -324,6 +331,16 @@ def analyze_codon_adaptation(
                     "seq": cds_seq,
                 }
                 pending.append((read_id, cds, host_taxid))
+
+        if n_no_host or n_no_orf:
+            logging.info(
+                "Codon CAI candidates: %d considered, %d pending; "
+                "skipped no-host=%d no-orf=%d",
+                n_seen,
+                len(pending),
+                n_no_host,
+                n_no_orf,
+            )
 
         host_taxids = {p[2] for p in pending if p[2] not in ("0", "")}
         store.require_host_taxids(host_taxids)
@@ -337,6 +354,12 @@ def analyze_codon_adaptation(
                 weights = store.get_cai_weights_for_host(host_taxid)
                 if weights:
                     cai_score = compute_cai(cds["seq"], weights)
+                else:
+                    logging.warning(
+                        "No CAI weights for host taxid %s (read %s); CAI left unset",
+                        host_taxid,
+                        read_id,
+                    )
 
             results.labels.append(
                 CodonAdaptationRead(
@@ -352,8 +375,12 @@ def analyze_codon_adaptation(
                 )
             )
 
+        logging.info("Codon CAI scored %d read(s)", len(results.labels))
         return results, diamond_path
     finally:
         if tmp_subset is not None and tmp_subset.exists():
-            tmp_subset.unlink(missing_ok=True)
+            try:
+                tmp_subset.unlink(missing_ok=True)
+            except OSError as exc:
+                logging.warning("Could not remove temp DIAMOND query %s: %s", tmp_subset, exc)
 

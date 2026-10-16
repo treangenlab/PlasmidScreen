@@ -40,13 +40,22 @@ def _diamond_line(
     )
 
 
-def test_run_diamond_blastx_command_args() -> None:
+def _touch_query_and_db(tmp_path: Path) -> tuple[Path, Path]:
+    reads = tmp_path / "reads.fa"
+    reads.write_text(">a\nACGT\n", encoding="utf-8")
+    db = tmp_path / "db.dmnd"
+    db.write_bytes(b"")
+    return reads, db
+
+
+def test_run_diamond_blastx_command_args(tmp_path: Path) -> None:
     from unittest.mock import patch
 
+    reads, db = _touch_query_and_db(tmp_path)
     with patch("plasmidScreen.lib.diamond_host_taxonomy.subprocess.run") as mock_run:
         mock_run.return_value.stdout = ""
         mock_run.return_value.returncode = 0
-        run_diamond_blastx("reads.fa", "db.dmnd", threads=2)
+        run_diamond_blastx(reads, db, threads=2)
     cmd = mock_run.call_args[0][0]
     assert "--block-size" in cmd
     idx = cmd.index("-f")
@@ -56,15 +65,16 @@ def test_run_diamond_blastx_command_args() -> None:
     assert "-o" not in cmd
 
 
-def test_run_diamond_blastx_mem_mode_block_sizes() -> None:
+def test_run_diamond_blastx_mem_mode_block_sizes(tmp_path: Path) -> None:
     from unittest.mock import patch
 
+    reads, db = _touch_query_and_db(tmp_path)
     expected = {0: ("4", "3"), 1: ("6", "1"), 2: ("12", "1")}
     for mode, (block, chunks) in expected.items():
         with patch("plasmidScreen.lib.diamond_host_taxonomy.subprocess.run") as mock_run:
             mock_run.return_value.stdout = ""
             mock_run.return_value.returncode = 0
-            run_diamond_blastx("reads.fa", "db.dmnd", threads=1, mem_mode=mode)
+            run_diamond_blastx(reads, db, threads=1, mem_mode=mode)
         cmd = mock_run.call_args[0][0]
         assert cmd[cmd.index("--block-size") + 1] == block
         assert cmd[cmd.index("--index-chunks") + 1] == chunks
@@ -80,6 +90,7 @@ def test_run_diamond_blastx_invalid_mem_mode() -> None:
 def test_run_diamond_blastx_writes_output_file(tmp_path: Path) -> None:
     from unittest.mock import patch
 
+    reads, db = _touch_query_and_db(tmp_path)
     out = tmp_path / "diamond.tsv"
     out.write_text(
         "read1\tref\t1\t99\t99.0\t33\t1e-5\t200\t562\t\n",
@@ -87,11 +98,28 @@ def test_run_diamond_blastx_writes_output_file(tmp_path: Path) -> None:
     )
     with patch("plasmidScreen.lib.diamond_host_taxonomy.subprocess.run") as mock_run:
         mock_run.return_value.returncode = 0
-        lines = run_diamond_blastx("reads.fa", "db.dmnd", output_path=out)
+        lines = run_diamond_blastx(reads, db, output_path=out)
     cmd = mock_run.call_args[0][0]
     assert "-o" in cmd
     assert str(out) in cmd
     assert len(lines) == 1
+
+
+def test_run_diamond_blastx_wraps_subprocess_failure(tmp_path: Path) -> None:
+    import subprocess
+    from unittest.mock import patch
+
+    import pytest
+
+    from plasmidScreen.lib.exceptions import DiamondError
+
+    reads, db = _touch_query_and_db(tmp_path)
+    with patch("plasmidScreen.lib.diamond_host_taxonomy.subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "diamond", stderr="boom"
+        )
+        with pytest.raises(DiamondError, match="exit code 1"):
+            run_diamond_blastx(reads, db)
 
 
 def test_resolve_diamond_lines_loads_file(tmp_path: Path) -> None:

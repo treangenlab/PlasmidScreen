@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
+from plasmidScreen.lib.exceptions import DiamondError, InputError
 from plasmidScreen.lib.models import MEMORY_MODE, MEMORY_CONFIG
 
 # outfmt 6: qseqid sseqid qstart qend pident length evalue bitscore staxids sscinames
@@ -89,7 +90,11 @@ def _parse_sscinames_field(raw: str) -> tuple[str, ...]:
 
 def read_diamond_output(path: str | Path) -> list[str]:
     """Load DIAMOND outfmt 6 TSV lines from a saved file."""
-    return Path(path).read_text(encoding="utf-8").splitlines()
+    path = Path(path)
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise InputError(f"Could not read DIAMOND output {path}: {exc}") from exc
 
 
 def resolve_diamond_lines(
@@ -97,7 +102,7 @@ def resolve_diamond_lines(
         diamond_db: str | Path | None,
         *,
         run_diamond: bool = True,
-        mem_mode:int = 0,
+        mem_mode: int = 0,
         output_path: str | Path | None = None,
         debug_write_output: bool = False,
         threads: int = 4,
@@ -118,7 +123,7 @@ def resolve_diamond_lines(
             )
         path = Path(output_path)
         if not path.is_file():
-            raise FileNotFoundError(f"DIAMOND output not found: {path}")
+            raise InputError(f"DIAMOND output not found: {path}")
         logging.info("Loading DIAMOND output from %s", path)
         return read_diamond_output(path), path
 
@@ -146,20 +151,28 @@ def run_diamond_blastx(
     """Run DIAMOND blastx; ORF detection is built in (--min-orf)."""
     reads_path = Path(reads_path)
     diamond_db = Path(diamond_db)
-    if mem_mode==0: #MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.LOW.value:
+
+    if mem_mode == 0:  # MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.LOW.value:
         block_size = "4"
         index_chunks = "3"
-    elif mem_mode==1: # MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.MEDIUM.value:
+    elif mem_mode == 1:  # MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.MEDIUM.value:
         block_size = "6"
         index_chunks = "1"
-    elif mem_mode==2: #MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.HIGH.value:
+    elif mem_mode == 2:  # MEMORY_CONFIG.get(mem_mode) == MEMORY_MODE.HIGH.value:
         block_size = "12"
         index_chunks = "1"
     else:
-        raise ValueError("memory_mode was expecting a value between 0-2 where:"
-                         "\nlow(0) <= 32GB  RAM "
-                         "\nmedium(1) <= 64GB  RAM "
-                         "\nhigh(2) <= 128GB RAM")
+        raise ValueError(
+            "memory_mode was expecting a value between 0-2 where:"
+            "\nlow(0) <= 32GB  RAM "
+            "\nmedium(1) <= 64GB  RAM "
+            "\nhigh(2) <= 128GB RAM"
+        )
+
+    if not reads_path.is_file():
+        raise InputError(f"DIAMOND query file not found: {reads_path}")
+    if not diamond_db.exists():
+        raise InputError(f"DIAMOND database not found: {diamond_db}")
 
     cmd: list[str] = [
         "diamond",
@@ -195,18 +208,31 @@ def run_diamond_blastx(
         *DIAMOND_OUTFMT,
     ]
 
-    if output_path is not None:
-        out = Path(output_path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        cmd.extend(["-o", str(out)])
-        logging.info("Running DIAMOND: %s", " ".join(cmd))
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-        logging.info("DIAMOND output written to %s", out)
-        return read_diamond_output(out)
+    try:
+        if output_path is not None:
+            out = Path(output_path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            cmd.extend(["-o", str(out)])
+            logging.info("Running DIAMOND: %s", " ".join(cmd))
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            logging.info("DIAMOND output written to %s", out)
+            return read_diamond_output(out)
 
-    logging.info("Running DIAMOND: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    return proc.stdout.splitlines()
+        logging.info("Running DIAMOND: %s", " ".join(cmd))
+        proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return proc.stdout.splitlines()
+    except FileNotFoundError as exc:
+        logging.error("DIAMOND executable not found on PATH")
+        raise DiamondError(
+            127, "diamond executable not found; is DIAMOND installed and on PATH?"
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        logging.error(
+            "DIAMOND failed (code %s). stderr: %s",
+            exc.returncode,
+            (exc.stderr or "").strip(),
+        )
+        raise DiamondError(exc.returncode, exc.stderr) from exc
 
 
 def parse_diamond_tsv(lines: Iterable[str]) -> dict[str, list[DiamondHit]]:
@@ -227,6 +253,7 @@ def parse_diamond_tsv(lines: Iterable[str]) -> dict[str, list[DiamondHit]]:
             evalue = float(parts[6])
             bitscore = float(parts[7])
         except ValueError:
+            logging.debug("Skipping malformed DIAMOND line: %s", line[:120])
             continue
         staxids = _parse_staxids_field(parts[8])
         sscinames = _parse_sscinames_field(parts[9]) if len(parts) > 9 else tuple()

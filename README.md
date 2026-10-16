@@ -116,6 +116,8 @@ database is recommended. The suggested diamond database is composed of all UniRe
 
 Input reads may be plain or gzip-compressed FASTA/FASTQ
 (`.fa`, `.fasta`, `.fq`, `.fastq`, and the same with `.gz`).
+By default the CLI logs progress at INFO; pass `--quiet` / `-q` to hide
+progress bars and INFO messages (warnings and errors still show).
 
 ```bash
 plasmid-screen screen reads.fa report.txt /path/to/kraken/db \

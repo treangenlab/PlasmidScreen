@@ -103,7 +103,8 @@ def run_screen(
     run_diamond
         Run DIAMOND blastx; if False, load precomputed TSV from ``diamond_output_path``.
     quiet_mode
-        Forces the STDOUT to be suppressed
+        If True (library default), suppress progress bars. Pair with logging level
+        WARNING+ for a quiet run; the CLI uses ``--quiet`` for both.
     memory_mode
         specify the memory configuration for deploying Plasmidscreen with a few discrete bins:
             low(0)    - 32GB  RAM
