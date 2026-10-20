@@ -37,8 +37,9 @@ def test_screen_codon_requires_diamond_db() -> None:
         app,
         ["screen", "reads.fa", "report.txt", "kraken_db"],
     )
+    text = (result.output or "") + (result.stderr or "")
     assert result.exit_code != 0
-    assert "diamond-db" in result.output.lower() or "diamond" in str(result.exception).lower()
+    assert "diamond-db" in text.lower()
 
 
 @patch("plasmidScreen.cli.run_screen")
