@@ -205,6 +205,7 @@ def screen(
             ),
         ] = False,
 ) -> None:
+    """Screening of engineered sequences."""
     configure_logging(quiet=quiet, force=True)
     if not run_kraken and not kraken_output_path:
         raise typer.BadParameter(
@@ -322,7 +323,7 @@ def build(
             help="Suppress INFO logs (warnings/errors only).",
         ),
 ) -> None:
-    """Build codon usage tables from the Codon Statistics Database for airgapped CAI scoring."""
+    """Build codon usage tables from the Codon Statistics Database for CAI scoring."""
     configure_logging(quiet=quiet, force=True)
     data_dir = output_dir or default_codon_usage_dir()
     archive = csdb_archive or default_csdb_archive_path()
