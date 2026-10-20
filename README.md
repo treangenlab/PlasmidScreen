@@ -56,9 +56,10 @@ screen_result = run_screen(
     codon_cai_engineered_threshold=0.6,
 )
 
-print(screen_result.engineered_read_ids)                 # overall engineered
-print(screen_result.engineered_scan.engineered_read_ids) # k-mer Synthetic
-print(screen_result.natural_read_ids_overall)
+print(screen_result.engineered_read_ids)                   # overall (k-mer ∪ CAI)
+print(screen_result.engineered_scan.engineered_read_ids)   # k-mer Synthetic
+print(screen_result.codon_cai_engineered_read_ids)         # CAI above threshold
+print(screen_result.natural_read_ids_overall)              # overall Natural
 
 for r in screen_result.per_read:
     print(

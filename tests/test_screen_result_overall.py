@@ -78,3 +78,6 @@ def test_overall_engineered_by_codon_cai_threshold(
     assert per["read_synthetic_1"].engineered_overall is True
     assert result.overall_synthetic_count == 2
     assert result.codon_cai_engineered_threshold == 0.7
+    assert result.codon_cai_engineered_read_ids == {"read_natural_1"}
+    assert result.engineered_scan.engineered_read_ids == {"read_synthetic_1"}
+    assert result.engineered_read_ids == {"read_natural_1", "read_synthetic_1"}

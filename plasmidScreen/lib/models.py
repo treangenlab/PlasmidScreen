@@ -19,6 +19,12 @@ class MEMORY_MODE(Enum):
 
 @dataclass
 class CodonAdaptationResult:
+    """Per-read CAI scores (no engineered threshold applied here).
+
+    For reads flagged engineered by CAI, use
+    :attr:`ScreenResult.codon_cai_engineered_read_ids`.
+    """
+
     labels: list[CodonAdaptationRead] = field(default_factory=list)
 
     def __len__(self) -> int:
@@ -31,12 +37,9 @@ class CodonAdaptationResult:
         return self.labels[index]
 
     @property
-    def natural_read_ids(self) -> set[str]:
-        return {r.read_id for r in self.labels if getattr(r, "label", None) == "Natural"}
-
-    @property
-    def engineered_read_ids(self) -> set[str]:
-        return {r.read_id for r in self.labels if getattr(r, "label", None) == "Synthetic"}
+    def scored_read_ids(self) -> set[str]:
+        """Read IDs that received a codon-adaptation result (host + ORF + CAI attempt)."""
+        return {r.read_id for r in self.labels}
 
 
 @dataclass(frozen=True)
@@ -44,7 +47,6 @@ class CodonAdaptationRead:
     """Per-read codon adaptation scores from DIAMOND ORFs and CSDB reference weights."""
 
     read_id: str
-    #label: Literal["Natural", "Synthetic"]
     cds_strand: str  # "+" or "-" on the read
     cds_start: int  # 0-based start (half-open interval with cds_end)
     cds_end: int
@@ -146,11 +148,17 @@ class ScreenResult:
 
     @property
     def engineered_read_ids(self) -> set[str]:
+        """Reads engineered overall (k-mer Synthetic and/or CAI above threshold)."""
         return {r.read_id for r in self.per_read if r.engineered_overall}
 
     @property
     def natural_read_ids_overall(self) -> set[str]:
         return {r.read_id for r in self.per_read if not r.engineered_overall}
+
+    @property
+    def codon_cai_engineered_read_ids(self) -> set[str]:
+        """Reads with CAI above ``codon_cai_engineered_threshold`` (empty if unset)."""
+        return {r.read_id for r in self.per_read if r.engineered_by_codon_cai}
 
 
 @dataclass(frozen=True)

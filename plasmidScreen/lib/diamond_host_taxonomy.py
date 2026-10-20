@@ -97,6 +97,46 @@ def read_diamond_output(path: str | Path) -> list[str]:
         raise InputError(f"Could not read DIAMOND output {path}: {exc}") from exc
 
 
+def diamond_technology_flags(sequencing_technology: int) -> list[str]:
+    """
+    DIAMOND blastx flags for long-read (0) vs short-read (1) inputs.
+
+    Long-read / ONT: frameshift + range-culling (error-prone, multi-ORF queries).
+    Short-read: more-sensitive search without frameshift alignment.
+    """
+    if sequencing_technology == 0:
+        return [
+            "--fast",
+            "--range-culling",
+            "--culling-overlap",
+            "50",
+            "--range-cover",
+            "50",
+            "--frameshift",
+            "15",
+            "--min-orf",
+            "30",
+            "--masking",
+            "seg",
+            "-k",
+            "1",
+        ]
+    if sequencing_technology == 1:
+        return [
+            "--more-sensitive",
+            "--min-orf",
+            "10",
+            "--masking",
+            "0",
+            "--top",
+            "5",
+        ]
+    raise ValueError(
+        f"Expecting sequence technology to be either 0 or 1. Instead received "
+        f"{sequencing_technology}. Where 0 is ONT/long-read and 1 is short-read."
+    )
+
+
 def resolve_diamond_lines(
         reads_path: str | Path,
         diamond_db: str | Path | None,
@@ -106,6 +146,7 @@ def resolve_diamond_lines(
         output_path: str | Path | None = None,
         debug_write_output: bool = False,
         threads: int = 4,
+        sequencing_technology: int = 1,
 ) -> tuple[list[str], Path | None]:
     """
     Run DIAMOND or load a saved TSV.
@@ -137,6 +178,7 @@ def resolve_diamond_lines(
         threads=threads,
         mem_mode=mem_mode,
         output_path=write_path,
+        sequencing_technology=sequencing_technology,
     )
     return lines, write_path
 
@@ -147,6 +189,7 @@ def run_diamond_blastx(
         threads: int = 4,
         mem_mode: int = 0,
         output_path: str | Path | None = None,
+        sequencing_technology: int = 1,
 ) -> list[str]:
     """Run DIAMOND blastx; ORF detection is built in (--min-orf)."""
     reads_path = Path(reads_path)
@@ -169,11 +212,20 @@ def run_diamond_blastx(
             "\nhigh(2) <= 128GB RAM"
         )
 
+    technology_specific_commands = diamond_technology_flags(sequencing_technology)
+    if sequencing_technology == 0:
+        logging.info(
+            "Running DIAMOND in long-read/ONT mode (--seq-type 0)."
+        )
+    else:
+        logging.info(
+            "Running DIAMOND in short-read mode (--seq-type 1)."
+        )
+
     if not reads_path.is_file():
         raise InputError(f"DIAMOND query file not found: {reads_path}")
     if not diamond_db.exists():
         raise InputError(f"DIAMOND database not found: {diamond_db}")
-
     cmd: list[str] = [
         "diamond",
         "blastx",
@@ -190,23 +242,10 @@ def run_diamond_blastx(
         "--index-chunks",
         index_chunks,
         "--salltitles",
-        "--range-culling",
-        "--culling-overlap",
-        "50",
-        "--range-cover",
-        "50",
-        "--frameshift",
-        "15",
-        "--fast",
-        "--min-orf",
-        "30",
-        "-k",
-        "1",
-        "--masking",
-        "seg",
         "-f",
         *DIAMOND_OUTFMT,
     ]
+    cmd.extend(technology_specific_commands)
 
     try:
         if output_path is not None:
