@@ -77,11 +77,11 @@ for r in screen_result.per_read:
 
 ```bash
 # Default: import all taxids in the CSDB archive (~5.2 GB download on first run)
-plasmid-screen build
+plasmidscreen build
 # (or: python -m plasmidScreen build)
 
 # Use an existing CSDB archive (no download)
-plasmid-screen build \
+plasmidscreen build \
   --csdb-archive /data/codonstatsdb_March2022.tar.gz \
   --no-download-csdb
 
@@ -93,14 +93,13 @@ Output: `codon_usage/codon_tables.json` and `taxonomy_parents.json`.
 ### Installation
 
 ```bash
-# Installs package + console script `plasmid-screen`
+# Installs package + console script `plasmidscreen`
 pip install .
-
-# Optional: Felix / internal benchmark extras
-# pip install ".[bench]"
 ```
 
 Requires Python ≥3.10. Also need `kraken2` and (for codon CAI) `diamond` on `PATH`.
+Kraken2 installation process can be found on their wiki: https://github.com/DerrickWood/kraken2/wiki/Manual.
+Similarly installing diamond can be found in their wiki: https://github.com/bbuchfink/diamond/wiki/2.-Installation,
 
 ### Recommended Databases
 
@@ -123,49 +122,49 @@ for short reads (default). Use `--mem-mode 0|1|2` to match available RAM for DIA
 (32 / 64 / 128 GB bins).
 
 ```bash
-plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
+plasmidscreen screen reads.fa report.txt /path/to/kraken/db \
   --diamond-db /path/to/protein.dmnd \
   --codon-usage-dir ~/.local/share/PlasmidScreen/codon_usage \
   --codon-usage-output codon_usage.tsv \
   --seq-type 1
 
 # Reuse Kraken classifications (no Kraken subprocess)
-plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
+plasmidscreen screen reads.fa report.txt /path/to/kraken/db \
   --no-run-kraken --kraken-output-path kraken.out \
   --diamond-db /path/to/protein.dmnd
 
 # Save DIAMOND TSV for debugging / codon-only reruns
-plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
+plasmidscreen screen reads.fa report.txt /path/to/kraken/db \
   --diamond-db /path/to/protein.dmnd \
   --debug-write-diamond-out --diamond-output-path diamond.tsv
 
 # Re-run codon step from saved DIAMOND output
-plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
+plasmidscreen screen reads.fa report.txt /path/to/kraken/db \
   --no-run-diamond --diamond-output-path diamond.tsv \
   --no-run-kraken --kraken-output-path kraken.out
 
 # CAI above threshold can flag overall engineered (on Natural reads with CAI scores)
-plasmid-screen screen reads.fa report.txt /path/to/kraken/db \
+plasmidscreen screen reads.fa report.txt /path/to/kraken/db \
   --diamond-db /path/to/protein.dmnd \
   --codon-cai-threshold 0.6 \
   --threshold 10
 
 # Engineered k-mer scan only (no codon / DIAMOND; overall == k-mer labels)
-plasmid-screen screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage
+plasmidscreen screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage
 ```
 
-If a host taxid has no resolvable codon table, screening raises `MissingCodonReferenceError` — build or extend the reference first (no online fetch at runtime).
-
-
-#### Internal benchmarking (Felix T&E)
-
-Multi-DB / multi-setting batch evaluation lives under [`benchmarks/`](benchmarks/README.md)
-(`run_felix_benchmark.py` with YAML configs). It can run PlasmidScreen then
-score TP/FP/TN/FN + BLAST, or `--score-only` against existing reports.
 
 #### P-Value Documentation
-The output contains two columns representing the confidence that a given read is of engineered origin. The first column reports the percentage of k-mers classified as engineered out of all k-mers in the read. The second column provides a p-value estimating the probability of observing this fraction of engineered k-mers by chance.
+The output contains two columns representing the confidence that a given read is of engineered origin. 
+The first column reports the percentage of k-mers classified as engineered out of all k-mers in the read. 
+The second column provides a p-value estimating the probability of observing this fraction of engineered k-mers by chance.
+The p-value is calculated using a binomial distribution based on the total number of classified k-mers,
+the number of classified engineered k-mers, and a background rate of engineered k-mers in non-engineered sequences. 
+This background rate represents the probability that a random, naturally occurring k-mer is misclassified as engineered.
+We recommend a conservative default background rate of 0.1%; lower values result in more aggressive filtering. 
+This rate was established on a curated dataset of non-engineered sequences, 
+comprising bacterial chromosomes (>22,000) and naturally occurring incomplete plasmids from IMG-PR (>561,000), 
+each chopped into 1000 bp fragments.
 
-The p-value is calculated using a binomial distribution based on the total number of classified k-mers, the number of classified engineered k-mers, and a background rate of engineered k-mers in non-engineered sequences. This background rate represents the probability that a random, naturally occurring k-mer is misclassified as engineered. We recommend a conservative default background rate of 0.1%; lower values result in more aggressive filtering. This rate was established on a curated dataset of non-engineered sequences, comprising bacterial chromosomes (>22,000) and naturally occurring incomplete plasmids from IMG-PR (>561,000), each chopped into 1000 bp fragments.
-
-Reported p-values are adjusted for multiple testing across all classified reads using the Benjamini-Hochberg False Discovery Rate (FDR) correction. 
+Reported p-values are adjusted for multiple testing across all classified reads using the Benjamini-Hochberg False 
+Discovery Rate (FDR) correction. 
