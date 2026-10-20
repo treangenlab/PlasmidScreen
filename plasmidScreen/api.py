@@ -30,6 +30,7 @@ __all__ = [
 
 def run_screen(
         fasta_file: str | Path,
+        seq_type: int,
         kraken_db: str | Path,
         engineered_report_path: str | Path | None = None,
         kraken_output_path: str | Path | None = None,
@@ -62,6 +63,8 @@ def run_screen(
     ----------
     fasta_file
         Input FASTA/FASTQ path (plain or gzip-compressed ``.gz``).
+    seq_type
+        Sequence technology type, if short read specify as 1 or set 0 if your input is long read.
     kraken_db
         Kraken2 database directory (required when ``run_kraken=True``).
     engineered_report_path
@@ -135,15 +138,16 @@ def run_screen(
             )
     if not memory_mode in MEMORY_CONFIG.values():
         raise ValueError("memory_mode was expecting a value between 0-2 where:"
-            "\nlow(0) <= 32GB  RAM "
-            "\nmedium(1) <= 64GB  RAM "
-            "\nhigh(2) <= 128GB RAM")
+                         "\nlow(0) <= 32GB  RAM "
+                         "\nmedium(1) <= 64GB  RAM "
+                         "\nhigh(2) <= 128GB RAM")
     workflow = Workflow(
-        str(fasta_file),
-        str(engineered_report_path) if engineered_report_path else None,
-        str(kraken_db),
-        threads,
-        str(kraken_output_path) if kraken_output_path else None,
+        fasta_file=str(fasta_file),
+        seq_type=seq_type,
+        output_report_path= str(engineered_report_path) if engineered_report_path else None,
+        kraken_db=str(kraken_db),
+        threads=threads,
+        kraken_raw_output=str(kraken_output_path) if kraken_output_path else None,
         window_size=window_size,
         engineered_kmer_threshold=engineered_kmer_threshold,
         codon_usage_output_path=str(codon_usage_output_path) if codon_usage_output_path else None,

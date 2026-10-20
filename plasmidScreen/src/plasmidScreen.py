@@ -30,12 +30,10 @@ from plasmidScreen.lib.models import (
     ReadEngineeringLabel,
     ScreenResult,
     compute_engineered_overall,
-    CodonAdaptationRead,
     BACKGROUND_RATE,
 )
 from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
-    parse_kraken_lines,
     write_codon_adaptation_results_tsv,
 )
 
@@ -108,6 +106,7 @@ class Workflow:
     def __init__(
             self,
             fasta_file: str | Path,
+            seq_type: int,
             output_report_path: str | Path | None,
             kraken_db: str | Path,
             threads: int,
@@ -133,6 +132,7 @@ class Workflow:
             background_rate: float = BACKGROUND_RATE
     ) -> None:
         self.fasta_file = Path(fasta_file)
+        self.seq_type = seq_type
         self.report_output_path = (
             Path(output_report_path) if output_report_path else None
         )
@@ -458,6 +458,7 @@ class Workflow:
             debug_write_diamond_output=self.debug_write_diamond_output,
             codon_usage_dir=self.codon_usage_dir,
             include_read_ids=natural_read_ids,
+            seq_type=self.seq_type,
         )
         self._diamond_output_saved = diamond_path
         return results

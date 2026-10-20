@@ -13,13 +13,13 @@ threshold is identified as engineered.
 
 ### Pipeline overview
 
-| Step | Tool | Purpose |
-|------|------|---------|
-| 1 | CSDB build | `codon_tables.json` + optional `taxonomy_parents.json` |
-| 2 | Kraken2 | Engineered k-mer labels (Natural / Synthetic) |
-| 3 | DIAMOND blastx | ORF intervals (`qstart`/`qend`) and host taxid (`staxids`) |
-| 4 | CAI | Codon adaptation vs host reference (Natural reads only in full screen) |
-| 5 | Combined call | `ScreenResult.per_read[].engineered_overall` / `overall_label` |
+| Step | Tool | Purpose                                                                           |
+|------|------|-----------------------------------------------------------------------------------|
+| 1 | CSDB build | `codon_tables.json` + optional `taxonomy_parents.json`                            |
+| 2 | Kraken2 | Engineered k-mer labels (Natural / Synthetic)                                     |
+| 3 | DIAMOND blastx | ORF intervals (`qstart`/`qend`) and host taxid (`staxids`)                        |
+| 4 | CAI | Codon adaptation vs host reference (K-mer scan natural reads only in full screen) |
+| 5 | Combined call | `ScreenResult.per_read[].engineered_overall` / `overall_label`                    |
 
 ### Overall engineered decision (`run_screen` / `ScreenResult`)
 
@@ -31,11 +31,6 @@ ran. If either are found to contain engineering, `ScreenResult` object will repo
 |--------|-----------|----------------------------------------|
 | K-mer scan | `--threshold`, `--window_size` | Engineered minimizers (taxid 32630) in a window ≥ threshold → k-mer **Synthetic** |
 | Codon CAI | `--codon-cai-threshold` (optional) | CAI &gt; threshold on a scored Natural read (requires codon step) |
-
-
-- Without `--codon-cai-threshold`, overall matches the k-mer scan only (`engineered_scan.synthetic_count` == `overall_synthetic_count`).
-- With `--codon-cai-threshold`, a read can be k-mer **Natural** but overall **Synthetic** if CAI is above the threshold.
-- Use **`screen_result.overall_synthetic_count`**, **`engineered_read_ids`**, and **`natural_read_ids_overall`** for run-level summaries (not only `engineered_scan.synthetic_count`).
 
 ### Library usage
 

@@ -117,6 +117,15 @@ def screen(
                 ),
             ),
         ] = None,
+        seq_type: Annotated[
+            int,
+            typer.Option(
+                "--seq-type",
+                help=(
+                    "Specify if reads are long read(0) or short read(1). Default behavior is 1 set as short read."
+                )
+            )
+        ] = 1,
         debug_write_diamond_out: Annotated[
             bool,
             typer.Option(
@@ -221,8 +230,9 @@ def screen(
             )
     try:
         result = run_screen(
-            fasta_file,
-            kraken_db_path,
+            fasta_file=fasta_file,
+            seq_type=seq_type,
+            kraken_db=kraken_db_path,
             engineered_report_path=output_report_path,
             kraken_output_path=kraken_output_path,
             threads=threads,

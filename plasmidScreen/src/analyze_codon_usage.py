@@ -206,13 +206,14 @@ def analyze_codon_adaptation(
         *,
         diamond_db: Union[str, Path] | None = None,
         diamond_threads: int = 4,
-        mem_mode:int = 0,
+        mem_mode: int = 0,
         run_diamond: bool = True,
         diamond_output_path: Union[str, Path] | None = None,
         debug_write_diamond_output: bool = False,
         codon_usage_store: Optional[CodonUsageStore] = None,
         codon_usage_dir: Optional[Union[str, Path]] = None,
         include_read_ids: Optional[set[str]] = None,
+        seq_type: int = 1,
 ) -> tuple[CodonAdaptationResult, Path | None]:
     """
     Score codon adaptation (CAI) for reads using DIAMOND and a pre-built CSDB reference.
@@ -243,6 +244,8 @@ def analyze_codon_adaptation(
         Pre-built ``codon_tables.json`` (and optional ``taxonomy_parents.json``).
     include_read_ids
         If set, only these read IDs are scored (e.g. Natural reads from engineered scan).
+    seq_type
+        ``0`` long-read/ONT DIAMOND flags; ``1`` short-read flags (default).
 
     Returns
     -------
@@ -293,6 +296,7 @@ def analyze_codon_adaptation(
             output_path=diamond_output_path,
             debug_write_output=debug_write_diamond_output,
             threads=diamond_threads,
+            sequencing_technology=seq_type,
         )
         orfs_by_read, host_by_read = infer_orfs_and_host_taxids(diamond_lines)
         pending: list[tuple[str, CdsOrf, str]] = []
