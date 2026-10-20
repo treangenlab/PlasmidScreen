@@ -58,6 +58,7 @@ def test_scan_engineered_blocks_integration(
     report = tmp_path / "report.txt"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,

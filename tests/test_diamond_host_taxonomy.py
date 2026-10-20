@@ -4,10 +4,10 @@ from pathlib import Path
 
 from plasmidScreen.lib.diamond_host_taxonomy import (
     DIAMOND_OUTFMT,
+    diamond_technology_flags,
     hits_to_orf_intervals,
     infer_orfs_and_host_taxids,
     parse_diamond_tsv,
-    resolve_diamond_lines,
     run_diamond_blastx,
 )
 
@@ -63,6 +63,27 @@ def test_run_diamond_blastx_command_args(tmp_path: Path) -> None:
     assert "qstart" in DIAMOND_OUTFMT
     assert "qend" in DIAMOND_OUTFMT
     assert "-o" not in cmd
+    # Default seq technology is short-read (1)
+    assert "--more-sensitive" in cmd
+    assert "--frameshift" not in cmd
+
+
+def test_run_diamond_blastx_seq_type_flags(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    reads, db = _touch_query_and_db(tmp_path)
+    with patch("plasmidScreen.lib.diamond_host_taxonomy.subprocess.run") as mock_run:
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.returncode = 0
+        run_diamond_blastx(reads, db, sequencing_technology=0)
+        long_cmd = mock_run.call_args[0][0]
+        run_diamond_blastx(reads, db, sequencing_technology=1)
+        short_cmd = mock_run.call_args[0][0]
+
+    assert " ".join(diamond_technology_flags(0)) in " ".join(long_cmd)
+    assert " ".join(diamond_technology_flags(1)) in " ".join(short_cmd)
+    assert "--frameshift" in long_cmd and "--frameshift" not in short_cmd
+    assert "--more-sensitive" in short_cmd and "--more-sensitive" not in long_cmd
 
 
 def test_run_diamond_blastx_mem_mode_block_sizes(tmp_path: Path) -> None:

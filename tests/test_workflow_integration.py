@@ -26,6 +26,7 @@ def test_workflow_run_without_kraken(
     codon_out = tmp_path / "codon.tsv"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
@@ -71,6 +72,7 @@ def test_workflow_does_not_write_codon_tsv_by_default(
     report = tmp_path / "report.txt"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
@@ -95,6 +97,7 @@ def test_workflow_skip_codon_usage(
     report = tmp_path / "report.txt"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
@@ -119,6 +122,7 @@ def test_workflow_in_memory_no_report_files(
     mock_diamond.return_value = (DIAMOND_LINES, None)
     wf = Workflow(
         str(sample_fasta),
+        1,
         None,
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
@@ -155,6 +159,7 @@ def test_workflow_loads_precomputed_diamond_tsv(
     report = tmp_path / "report.txt"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
@@ -186,6 +191,7 @@ def test_run_kraken_enabled_calls_subprocess(
     (tmp_path / "kraken_db").mkdir()
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
@@ -216,6 +222,7 @@ def test_run_kraken_debug_writes_output_flag(
     (tmp_path / "kraken_db").mkdir()
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(tmp_path / "report.txt"),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
@@ -246,6 +253,7 @@ def test_report_codon_cai_method_when_only_codon_flags(
     report = tmp_path / "report.txt"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
