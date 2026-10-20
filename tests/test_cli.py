@@ -1,6 +1,7 @@
 """CLI smoke / validation tests via Typer's CliRunner."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,15 @@ from plasmidScreen.lib.diamond_host_taxonomy import diamond_technology_flags
 from plasmidScreen.lib.types import GeneSet
 
 runner = CliRunner()
+
+# Rich/Typer may bold option names by inserting ANSI codes mid-token
+# (e.g. ``--diamond-db`` → bold ``-`` + ``-diamond`` + ``-db``).
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _cli_text(result) -> str:
+    raw = (result.output or "") + (getattr(result, "stderr", None) or "")
+    return _ANSI_RE.sub("", raw).lower()
 
 
 def test_cli_help_boots() -> None:
@@ -27,9 +37,7 @@ def test_screen_no_run_kraken_requires_path() -> None:
         ["screen", "reads.fa", "report.txt", "kraken_db", "--no-run-kraken", "--skip-codon-usage"],
     )
     assert result.exit_code != 0
-    assert "kraken-output-path" in result.output.lower() or "kraken-output-path" in str(
-        result.exception
-    ).lower() or result.exit_code == 2
+    assert "kraken-output-path" in _cli_text(result) or result.exit_code == 2
 
 
 def test_screen_codon_requires_diamond_db() -> None:
@@ -37,9 +45,8 @@ def test_screen_codon_requires_diamond_db() -> None:
         app,
         ["screen", "reads.fa", "report.txt", "kraken_db"],
     )
-    text = (result.output or "") + (result.stderr or "")
     assert result.exit_code != 0
-    assert "diamond-db" in text.lower()
+    assert "diamond-db" in _cli_text(result)
 
 
 @patch("plasmidScreen.cli.run_screen")
