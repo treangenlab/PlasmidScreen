@@ -217,7 +217,6 @@ class Workflow:
             "kraken2",
             "--db",
             str(self.kraken_db),
-            "--report-minimizer-data",
             "--use-names",
             str(self.fasta_file),
             "--threads",
