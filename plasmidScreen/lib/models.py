@@ -19,15 +19,27 @@ class MEMORY_MODE(Enum):
 
 @dataclass
 class CodonAdaptationResult:
-    labels: list[CodonAdaptationRead] | None = field(default=list)
+    """Per-read CAI scores (no engineered threshold applied here).
+
+    For reads flagged engineered by CAI, use
+    :attr:`ScreenResult.codon_cai_engineered_read_ids`.
+    """
+
+    labels: list[CodonAdaptationRead] = field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __iter__(self):
+        return iter(self.labels)
+
+    def __getitem__(self, index: int) -> CodonAdaptationRead:
+        return self.labels[index]
 
     @property
-    def natural_read_ids(self) -> set[str]:
-        return {r.read_id for r in self.labels if r.label == "Natural"}
-
-    @property
-    def engineered_read_ids(self) -> set[str]:
-        return {r.read_id for r in self.labels if r.label == "Synthetic"}
+    def scored_read_ids(self) -> set[str]:
+        """Read IDs that received a codon-adaptation result (host + ORF + CAI attempt)."""
+        return {r.read_id for r in self.labels}
 
 
 @dataclass(frozen=True)
@@ -35,7 +47,6 @@ class CodonAdaptationRead:
     """Per-read codon adaptation scores from DIAMOND ORFs and CSDB reference weights."""
 
     read_id: str
-    #label: Literal["Natural", "Synthetic"]
     cds_strand: str  # "+" or "-" on the read
     cds_start: int  # 0-based start (half-open interval with cds_end)
     cds_end: int
@@ -91,7 +102,7 @@ def compute_engineered_overall(
     Combined engineered call for a read using thresholds active in ``run_screen``.
 
     Engineered if the k-mer scan flagged Synthetic, or if codon CAI flagging is
-    enabled (threshold set) and CAI is below that threshold.
+    enabled (threshold set) and CAI is above that threshold.
     """
     if engineered_by_kmer_scan:
         return True
@@ -111,7 +122,7 @@ class ScreenResult:
     codon_adaptation: CodonAdaptationResult
     engineered_kmer_threshold: int
     engineered_kmer_window_size: int
-    codon_cai_engineered_threshold: float
+    codon_cai_engineered_threshold: float | None
     per_read: list["ReadFlagDetail"] = field(default_factory=list)
     engineered_report_path: Optional[Path] = None
     codon_usage_report_path: Optional[Path] = None
@@ -126,13 +137,28 @@ class ScreenResult:
     def overall_natural_read_count(self) -> int:
         return sum(1 for r in self.per_read if not r.engineered_overall)
 
+    # README / API aliases
+    @property
+    def overall_synthetic_count(self) -> int:
+        return self.overall_engineered_read_count
+
+    @property
+    def overall_natural_count(self) -> int:
+        return self.overall_natural_read_count
+
     @property
     def engineered_read_ids(self) -> set[str]:
+        """Reads engineered overall (k-mer Synthetic and/or CAI above threshold)."""
         return {r.read_id for r in self.per_read if r.engineered_overall}
 
     @property
     def natural_read_ids_overall(self) -> set[str]:
         return {r.read_id for r in self.per_read if not r.engineered_overall}
+
+    @property
+    def codon_cai_engineered_read_ids(self) -> set[str]:
+        """Reads with CAI above ``codon_cai_engineered_threshold`` (empty if unset)."""
+        return {r.read_id for r in self.per_read if r.engineered_by_codon_cai}
 
 
 @dataclass(frozen=True)

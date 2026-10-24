@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plasmidScreen"
+version = "1.0.0"
+description = "Towards Enhanced Detection of Genetically Engineered Plasmids"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Treangen Lab" }]
+keywords = ["bioinformatics", "plasmid", "engineered-DNA", "kraken2", "codon"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bioinformatics",
+]
+dependencies = [
+    "biopython>=1.83",
+    "numba>=0.58",
+    "numpy>=1.24",
+    "rich>=13.0",
+    "tqdm>=4.66",
+    "typer>=0.12",
+    "scipy>=1.15",
+]
+
+[project.optional-dependencies]
+bench = [
+    "pyyaml>=6.0",
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+    "tqdm>=4.66",
+]
+
+[project.scripts]
+plasmidscreen = "plasmidScreen.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/treangenlab/PlasmidScreen"
+Repository = "https://github.com/treangenlab/PlasmidScreen"
+
+[tool.setuptools.packages.find]
+include = ["plasmidScreen*"]
+
+[tool.setuptools.package-data]
+plasmidScreen = ["data/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"

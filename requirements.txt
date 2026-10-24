@@ -1,9 +1,0 @@
-biopython>=1.83
-numba>=0.58
-numpy>=1.24
-rich>=13.0
-tqdm>=4.66
-typer>=0.12
-scipy>=1.15
-# Development / testing
-pytest>=7.4

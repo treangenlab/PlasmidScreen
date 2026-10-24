@@ -1,8 +1,76 @@
+# Python
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.pytest_deps/
+*$py.class
+*.so
+.Python
 *.egg-info/
 .eggs/
 dist/
 build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+.env/
+.viz_venv/
+.numba_test/
+.pytest_deps/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local data, results, and large binaries (do not commit)
+*.mmi
+*.dmnd
+*.kraken_out*
+*_kraken_out.txt
+*_results.txt
+*_report.tsv
+enriched_ww_report*.tsv
+tmp_output.txt
+output.txt
+test_output.txt
+example_for_mike.txt
+minimap_output
+valid_hits_fasta.fasta
+blastn
+ncbi-blast-*/
+ncbi-blast-*.tar.gz
+go-basic.obo
+NaturalAndEngineeredPlasmidsDB*
+*_percent_natural_*.txt
+*_percent_natural_*.tsv
+DYN_*
+IMGPR_*
+bacterial_genome_fragments*
+non_src_files/
+*.fasta.gz
+*.fastq.gz
+
+# Scratch / local scripts (keep package source only)
+scratch.py
+scratch4.py
+
+# Local benchmark configs / outputs (keep example YAML)
+benchmarks/felix_tne.yaml
+benchmark_out/
+benchmarks/**/tmp/
+
+# OS
+.DS_Store
+Thumbs.db

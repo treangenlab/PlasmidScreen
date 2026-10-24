@@ -6,6 +6,10 @@ class PlasmidScreenError(Exception):
     """Base error for library usage."""
 
 
+class InputError(PlasmidScreenError):
+    """Raised when required inputs are missing or invalid."""
+
+
 class MissingCodonReferenceError(PlasmidScreenError):
     """Raised when host taxids lack a pre-built codon usage reference (airgapped runs)."""
 
@@ -27,3 +31,23 @@ class CodonReferenceNotFoundError(PlasmidScreenError):
             f"Codon usage reference not found at {data_dir}. "
             "Run build_codon_reference() on a networked machine first."
         )
+
+
+class KrakenError(PlasmidScreenError):
+    """Raised when the Kraken2 subprocess fails or is unavailable."""
+
+    def __init__(self, returncode: int, stderr: str | None = None) -> None:
+        self.returncode = returncode
+        self.stderr = stderr or ""
+        detail = f" (stderr: {self.stderr.strip()})" if self.stderr.strip() else ""
+        super().__init__(f"Kraken2 failed with exit code {returncode}{detail}")
+
+
+class DiamondError(PlasmidScreenError):
+    """Raised when the DIAMOND subprocess fails or is unavailable."""
+
+    def __init__(self, returncode: int, stderr: str | None = None) -> None:
+        self.returncode = returncode
+        self.stderr = stderr or ""
+        detail = f" (stderr: {self.stderr.strip()})" if self.stderr.strip() else ""
+        super().__init__(f"DIAMOND failed with exit code {returncode}{detail}")

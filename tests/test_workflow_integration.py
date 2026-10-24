@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from plasmidScreen.src.plasmidScreen import Workflow
 
@@ -26,11 +26,11 @@ def test_workflow_run_without_kraken(
     codon_out = tmp_path / "codon.tsv"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
         kraken_raw_output=str(sample_kraken_out),
-        write_engineered_report=True,
         codon_usage_output_path=str(codon_out),
         codon_usage_dir=str(codon_store_dir),
         run_kraken=False,
@@ -72,11 +72,11 @@ def test_workflow_does_not_write_codon_tsv_by_default(
     report = tmp_path / "report.txt"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
         kraken_raw_output=str(sample_kraken_out),
-        write_engineered_report=True,
         codon_usage_output_path=None,
         codon_usage_dir=str(codon_store_dir),
         run_kraken=False,
@@ -97,17 +97,17 @@ def test_workflow_skip_codon_usage(
     report = tmp_path / "report.txt"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
         kraken_raw_output=str(sample_kraken_out),
-        write_engineered_report=True,
         codon_usage_dir=str(codon_store_dir),
         run_kraken=False,
         run_codon_usage=False,
     )
     result = wf.run()
-    assert result.codon_adaptation == []
+    assert len(result.codon_adaptation) == 0
     assert result.codon_usage_report_path is None
 
 
@@ -122,11 +122,11 @@ def test_workflow_in_memory_no_report_files(
     mock_diamond.return_value = (DIAMOND_LINES, None)
     wf = Workflow(
         str(sample_fasta),
+        1,
         None,
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
         kraken_raw_output=str(sample_kraken_out),
-        write_engineered_report=False,
         codon_usage_output_path=None,
         codon_usage_dir=str(codon_store_dir),
         run_kraken=False,
@@ -159,11 +159,11 @@ def test_workflow_loads_precomputed_diamond_tsv(
     report = tmp_path / "report.txt"
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
         kraken_raw_output=str(sample_kraken_out),
-        write_engineered_report=True,
         codon_usage_dir=str(codon_store_dir),
         run_kraken=False,
         run_codon_usage=True,
@@ -184,14 +184,18 @@ def test_run_kraken_enabled_calls_subprocess(
     codon_store_dir: Path,
     tmp_path: Path,
 ) -> None:
+    mock_proc = MagicMock()
+    mock_proc.stdout = sample_kraken_out.read_text()
+    mock_subprocess.return_value = mock_proc
     report = tmp_path / "report.txt"
+    (tmp_path / "kraken_db").mkdir()
     wf = Workflow(
         str(sample_fasta),
+        1,
         str(report),
         kraken_db=str(tmp_path / "kraken_db"),
         threads=1,
         kraken_raw_output=None,
-        write_engineered_report=True,
         codon_usage_dir=str(codon_store_dir),
         run_kraken=True,
         run_codon_usage=False,
@@ -202,3 +206,68 @@ def test_run_kraken_enabled_calls_subprocess(
     # In-memory by default: omit --output so Kraken2 writes classifications to stdout
     assert "--output" not in args
     assert "--report" not in args
+
+
+@patch("plasmidScreen.src.plasmidScreen.subprocess.run")
+def test_run_kraken_debug_writes_output_flag(
+    mock_subprocess,
+    sample_fasta: Path,
+    sample_kraken_out: Path,
+    codon_store_dir: Path,
+    tmp_path: Path,
+) -> None:
+    kraken_out = tmp_path / "kraken.out"
+    kraken_out.write_text(sample_kraken_out.read_text())
+    mock_subprocess.return_value = MagicMock(stdout="")
+    (tmp_path / "kraken_db").mkdir()
+    wf = Workflow(
+        str(sample_fasta),
+        1,
+        str(tmp_path / "report.txt"),
+        kraken_db=str(tmp_path / "kraken_db"),
+        threads=1,
+        kraken_raw_output=str(kraken_out),
+        codon_usage_dir=str(codon_store_dir),
+        run_kraken=True,
+        run_codon_usage=False,
+        debug_write_kraken_output=True,
+    )
+    wf.run()
+    args = mock_subprocess.call_args[0][0]
+    assert "--output" in args
+    assert str(kraken_out) in args
+
+
+@patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
+@patch("plasmidScreen.src.analyze_codon_usage.compute_cai", autospec=True)
+def test_report_codon_cai_method_when_only_codon_flags(
+    mock_cai,
+    mock_diamond,
+    sample_fasta: Path,
+    sample_kraken_out: Path,
+    codon_store_dir: Path,
+    tmp_path: Path,
+) -> None:
+    mock_diamond.return_value = (DIAMOND_LINES, None)
+    mock_cai.return_value = 0.95  # above threshold → codon engineered
+    report = tmp_path / "report.txt"
+    wf = Workflow(
+        str(sample_fasta),
+        1,
+        str(report),
+        kraken_db=str(tmp_path / "kraken_db"),
+        threads=1,
+        kraken_raw_output=str(sample_kraken_out),
+        codon_usage_dir=str(codon_store_dir),
+        run_kraken=False,
+        run_codon_usage=True,
+        codon_cai_engineered_threshold=0.6,
+        diamond_db=str(tmp_path / "diamond.dmnd"),
+    )
+    result = wf.run()
+    per = {r.read_id: r for r in result.per_read}
+    assert per["read_natural_1"].engineered_by_codon_cai is True
+    assert per["read_natural_1"].engineered_by_kmer_scan is False
+    assert "codon_cai" in per["read_natural_1"].engineered_methods
+    text = report.read_text()
+    assert "Engineered\tread_natural_1\tcodon_cai" in text

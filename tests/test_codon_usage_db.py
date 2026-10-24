@@ -26,13 +26,47 @@ def test_cai_weights_max_within_amino_acid(uniform_frequencies: dict[str, float]
         assert max(ws) == pytest.approx(1.0), f"AA {aa} should have a max weight of 1.0"
 
 
-def test_store_load_and_resolve_lineage(codon_store: CodonUsageStore) -> None:
+def test_cai_weights_relative_to_preferred_synonym() -> None:
+    """Sharp & Li: weight = freq / max_freq within each amino acid."""
+    freqs = {
+        "AAA": 0.8,  # Lys preferred
+        "AAG": 0.2,
+        "ATG": 1.0,  # Met (single codon)
+        "TAA": 1.0,  # stop — ignored
+    }
+    weights = cai_weights_from_frequencies(freqs)
+    assert "TAA" not in weights
+    assert weights["AAA"] == pytest.approx(1.0)
+    assert weights["AAG"] == pytest.approx(0.25)
+    assert weights["ATG"] == pytest.approx(1.0)
+
+
+def test_store_load_and_resolve_exact_taxid(codon_store: CodonUsageStore) -> None:
     assert codon_store.has_codon_table("562")
     ref = codon_store.resolve_reference_taxid("562")
     assert ref == "562"
     weights = codon_store.get_cai_weights_for_host("562")
     assert weights is not None
     assert "ATG" in weights
+
+
+def test_resolve_reference_taxid_walks_parents(
+    tmp_path: Path, uniform_frequencies: dict[str, float]
+) -> None:
+    """Child taxid without its own table should resolve to an ancestor table."""
+    import json
+
+    data_dir = tmp_path / "codon_usage"
+    data_dir.mkdir()
+    # Only ancestor 561 has a table; child 562 points up to 561.
+    tables = {"561": {"source": "test", "frequencies": uniform_frequencies}}
+    parents = {"562": "561", "561": "561"}
+    (data_dir / "codon_tables.json").write_text(json.dumps(tables))
+    (data_dir / "taxonomy_parents.json").write_text(json.dumps(parents))
+
+    store = CodonUsageStore.load(data_dir)
+    assert store.resolve_reference_taxid("562") == "561"
+    assert store.get_cai_weights_for_host("562") is not None
 
 
 def test_missing_host_raises(codon_store: CodonUsageStore) -> None:
@@ -56,3 +90,25 @@ def test_writable_store_roundtrip(tmp_path: Path, uniform_frequencies: dict[str,
 
     loaded = CodonUsageStore.load(data_dir)
     assert loaded.get_frequencies("123") == uniform_frequencies
+
+
+def test_resolve_skips_empty_and_zero_taxids(codon_store: CodonUsageStore) -> None:
+    assert codon_store.resolve_reference_taxid("0") is None
+    assert codon_store.resolve_reference_taxid("") is None
+    assert codon_store.missing_host_taxids(["0", "", "562"]) == []
+
+
+def test_require_host_taxids_ok_when_all_resolvable(codon_store: CodonUsageStore) -> None:
+    codon_store.require_host_taxids(["562", "561"])  # should not raise
+
+
+def test_readonly_store_cannot_save(codon_store: CodonUsageStore) -> None:
+    with pytest.raises(RuntimeError, match="read-only"):
+        codon_store.save()
+
+
+def test_readonly_store_cannot_set_table(
+    codon_store: CodonUsageStore, uniform_frequencies: dict[str, float]
+) -> None:
+    with pytest.raises(RuntimeError, match="read-only"):
+        codon_store.set_codon_table("999", uniform_frequencies)
