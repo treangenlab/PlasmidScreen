@@ -53,6 +53,23 @@ def test_workflow_missing_fasta(tmp_path: Path) -> None:
         wf.run()
 
 
+def test_workflow_empty_fasta(tmp_path: Path) -> None:
+    empty = tmp_path / "empty.fa"
+    empty.write_text("")
+    wf = Workflow(
+        str(empty),
+        1,
+        str(tmp_path / "out.txt"),
+        kraken_db=str(tmp_path / "db"),
+        threads=1,
+        kraken_raw_output=str(tmp_path / "k.out"),
+        run_kraken=False,
+        run_codon_usage=False,
+    )
+    with pytest.raises(InputError, match="sequence file is empty"):
+        wf.run()
+
+
 def test_workflow_missing_kraken_output(tmp_path: Path, sample_fasta: Path) -> None:
     wf = Workflow(
         str(sample_fasta),

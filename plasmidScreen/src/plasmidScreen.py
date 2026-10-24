@@ -170,6 +170,8 @@ class Workflow:
     def _validate_inputs(self) -> None:
         if not self.fasta_file.is_file():
             raise InputError(f"Input sequence file not found: {self.fasta_file}")
+        if self.fasta_file.stat().st_size == 0:
+            raise InputError(f"Input sequence file is empty: {self.fasta_file}")
         if self.run_kraken_enabled:
             if not self.kraken_db.is_dir():
                 raise InputError(f"Kraken2 database directory not found: {self.kraken_db}")
