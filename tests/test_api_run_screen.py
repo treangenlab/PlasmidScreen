@@ -58,6 +58,32 @@ def test_run_screen_rejects_bad_memory_mode() -> None:
         )
 
 
+def test_run_screen_requires_perseus_db() -> None:
+    with pytest.raises(ValueError, match="perseus_db"):
+        run_screen(
+            "reads.fa",
+            1,
+            "kraken_db",
+            run_codon_usage=False,
+            run_perseus=True,
+            perseus_db=None,
+        )
+
+
+def test_run_screen_requires_perseus_output_for_debug_write() -> None:
+    with pytest.raises(ValueError, match="perseus_output_path"):
+        run_screen(
+            "reads.fa",
+            1,
+            "kraken_db",
+            run_codon_usage=False,
+            run_perseus=True,
+            perseus_db="ete3_db",
+            debug_write_perseus_output=True,
+            perseus_output_path=None,
+        )
+
+
 @patch("plasmidScreen.api.Workflow")
 def test_run_screen_delegates_defaults_to_workflow(mock_workflow_cls: MagicMock) -> None:
     mock_instance = MagicMock()

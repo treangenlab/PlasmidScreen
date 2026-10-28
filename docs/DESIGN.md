@@ -15,7 +15,8 @@ flowchart LR
     E[Reads FASTA/FASTQ] --> F[Kraken2]
     F --> G[kraken classifications]
     G --> H[Engineered k-mer scan]
-    H --> I[engineered_report.txt]
+    H --> P[Optional Perseus on Natural]
+    P --> I[engineered_report.txt]
     E --> J[DIAMOND blastx]
     J --> K[diamond.tsv]
     K --> L[Codon CAI vs CSDB]
@@ -240,6 +241,7 @@ For each read in `per_read`:
 ```
 engineered_overall =
     engineered_by_kmer_scan
+    OR engineered_by_perseus
     OR (codon_cai_engineered_threshold is set AND engineered_by_codon_cai is True)
 ```
 
@@ -320,7 +322,9 @@ Per-read attribution and evidence for engineered calls.
 | `engineered_by_codon_cai` | bool \| None | `True` if CAI &gt; threshold; `False` if at/below; `None` if threshold unset or no CAI |
 | `engineered_overall` | bool | Combined decision (see §3.4) |
 | `overall_label` | `"Natural"` \| `"Synthetic"` | Human-readable combined label |
-| `engineered_methods` | list[str] (property) | Contributing methods: `engineered_kmer_scan`, `codon_cai` |
+| `engineered_by_perseus` | bool \| None | `True` if Perseus assigned taxid 32630 on a Natural read |
+| `perseus_taxid` | int \| None | Perseus `perseus_taxid` when scored |
+| `engineered_methods` | list[str] (property) | Contributing methods: `engineered_kmer_scan`, `perseus`, `codon_cai` |
 | `engineered_any` | bool (property) | Alias for `engineered_overall` |
 
 #### `BuildCodonReferenceResult`

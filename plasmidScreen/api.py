@@ -48,6 +48,10 @@ def run_screen(
         diamond_output_path: str | Path | None = None,
         debug_write_diamond_output: bool = False,
         run_diamond: bool = True,
+        run_perseus: bool = False,
+        perseus_db: str | Path | None = None,
+        perseus_output_path: str | Path | None = None,
+        debug_write_perseus_output: bool = False,
         quiet_mode: bool = True,
         memory_mode: int = 0,
         background_rate: float = BACKGROUND_RATE
@@ -56,8 +60,9 @@ def run_screen(
     Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
 
     Engineered detection uses Kraken2 minimizer blocks (taxid 32630) in a sliding window.
-    Codon CAI runs on reads labeled **Natural** only, using DIAMOND blastx for ORF coordinates
-    and host taxids, then pre-built codon usage tables for CAI.
+    Optionally, Perseus refines Natural-read Kraken classifications; a Perseus taxid of
+    32630 (synthetic construct) marks the read engineered. Codon CAI runs on reads still
+    labeled **Natural** after the k-mer scan (and Perseus, if enabled).
 
     Parameters
     ----------
@@ -105,6 +110,16 @@ def run_screen(
         Persist DIAMOND alignments to ``diamond_output_path``.
     run_diamond
         Run DIAMOND blastx; if False, load precomputed TSV from ``diamond_output_path``.
+    run_perseus
+        If True, run Perseus extract+filter on Natural reads after the k-mer scan.
+        Requires ``perseus`` on PATH and ``perseus_db`` (from ``perseus setup``).
+    perseus_db
+        ETE3 taxonomy directory for Perseus (required when ``run_perseus=True``).
+    perseus_output_path
+        Save or load Perseus filter TSV (required when ``run_perseus=False`` to load
+        precomputed output, or when ``debug_write_perseus_output=True``).
+    debug_write_perseus_output
+        Persist Perseus filter TSV to ``perseus_output_path``.
     quiet_mode
         If True (library default), suppress progress bars. Pair with logging level
         WARNING+ for a quiet run; the CLI uses ``--quiet`` for both.
@@ -136,6 +151,12 @@ def run_screen(
             raise ValueError(
                 "diamond_output_path is required when debug_write_diamond_output=True."
             )
+    if run_perseus and perseus_db is None:
+        raise ValueError("perseus_db is required when run_perseus=True.")
+    if debug_write_perseus_output and perseus_output_path is None:
+        raise ValueError(
+            "perseus_output_path is required when debug_write_perseus_output=True."
+        )
     if not memory_mode in MEMORY_CONFIG.values():
         raise ValueError("memory_mode was expecting a value between 0-2 where:"
                          "\nlow(0) <= 32GB  RAM "
@@ -161,6 +182,10 @@ def run_screen(
         diamond_output_path=str(diamond_output_path) if diamond_output_path else None,
         debug_write_diamond_output=debug_write_diamond_output,
         run_diamond=run_diamond,
+        run_perseus=run_perseus,
+        perseus_db=str(perseus_db) if perseus_db else None,
+        perseus_output_path=str(perseus_output_path) if perseus_output_path else None,
+        debug_write_perseus_output=debug_write_perseus_output,
         quiet_mode=quiet_mode,
         mem_mode=memory_mode,
         background_rate=background_rate

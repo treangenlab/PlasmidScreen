@@ -174,6 +174,45 @@ def screen(
                 ),
             ),
         ] = True,
+        run_perseus: Annotated[
+            bool,
+            typer.Option(
+                "--run-perseus/--no-run-perseus",
+                help=(
+                    "After the Kraken2 k-mer scan, run Perseus on Natural reads. "
+                    "Reads with perseus_taxid 32630 are marked engineered. "
+                    "Requires perseus on PATH and --perseus-db."
+                ),
+            ),
+        ] = False,
+        perseus_db: Annotated[
+            str | None,
+            typer.Option(
+                "--perseus-db",
+                help=(
+                    "Perseus ETE3 taxonomy directory (from `perseus setup`). "
+                    "Required with --run-perseus."
+                ),
+            ),
+        ] = None,
+        perseus_output_path: Annotated[
+            str | None,
+            typer.Option(
+                "--perseus-output-path",
+                help=(
+                    "Save/load Perseus filter TSV. Required with "
+                    "--debug-write-perseus-out, or with --no-run-perseus when "
+                    "loading a precomputed file (omit both to skip Perseus)."
+                ),
+            ),
+        ] = None,
+        debug_write_perseus_out: Annotated[
+            bool,
+            typer.Option(
+                "--debug-write-perseus-out",
+                help="Write Perseus filter TSV to --perseus-output-path (debug).",
+            ),
+        ] = False,
         kraken_db_path: Annotated[
             str, typer.Argument(help="Kraken2 database path")
         ] = DEFAULT_DB_PATH,
@@ -229,6 +268,14 @@ def screen(
             raise typer.BadParameter(
                 "--diamond-output-path is required when --debug-write-diamond-out is set"
             )
+    if run_perseus and not perseus_db:
+        raise typer.BadParameter(
+            "--perseus-db is required when --run-perseus is set"
+        )
+    if debug_write_perseus_out and not perseus_output_path:
+        raise typer.BadParameter(
+            "--perseus-output-path is required when --debug-write-perseus-out is set"
+        )
     try:
         result = run_screen(
             fasta_file=fasta_file,
@@ -250,6 +297,10 @@ def screen(
             diamond_output_path=diamond_output_path,
             debug_write_diamond_output=debug_write_diamond_out,
             run_diamond=run_diamond,
+            run_perseus=run_perseus,
+            perseus_db=perseus_db,
+            perseus_output_path=perseus_output_path,
+            debug_write_perseus_output=debug_write_perseus_out,
             background_rate=background_rate,
             memory_mode=mem_mode,
             quiet_mode=quiet,

@@ -17,9 +17,10 @@ threshold is identified as engineered.
 |------|------|-----------------------------------------------------------------------------------|
 | 1 | CSDB build | `codon_tables.json` + optional `taxonomy_parents.json`                            |
 | 2 | Kraken2 | Engineered k-mer labels (Natural / Synthetic)                                     |
-| 3 | DIAMOND blastx | ORF intervals (`qstart`/`qend`) and host taxid (`staxids`)                        |
-| 4 | CAI | Codon adaptation vs host reference (K-mer scan natural reads only in full screen) |
-| 5 | Combined call | `ScreenResult.per_read[].engineered_overall` / `overall_label`                    |
+| 3 | Perseus (optional) | On Natural reads: `perseus_taxid` 32630 → engineered                              |
+| 4 | DIAMOND blastx | ORF intervals (`qstart`/`qend`) and host taxid (`staxids`)                        |
+| 5 | CAI | Codon adaptation vs host reference (remaining Natural reads only in full screen)  |
+| 6 | Combined call | `ScreenResult.per_read[].engineered_overall` / `overall_label`                    |
 
 ### Overall engineered decision (`run_screen` / `ScreenResult`)
 
@@ -30,6 +31,7 @@ ran. If either are found to contain engineering, `ScreenResult` object will repo
 | Signal | Parameter | Counts toward overall engineered when |
 |--------|-----------|----------------------------------------|
 | K-mer scan | `--threshold`, `--window_size` | Engineered minimizers (taxid 32630) in a window ≥ threshold → k-mer **Synthetic** |
+| Perseus | `--run-perseus`, `--perseus-db` | Perseus assigns taxid **32630** on a k-mer-Natural read |
 | Codon CAI | `--codon-cai-threshold` (optional) | CAI &gt; threshold on a scored Natural read (requires codon step) |
 
 ### Library usage
@@ -98,6 +100,8 @@ pip install .
 ```
 
 Requires Python ≥3.10. Also need `kraken2` and (for codon CAI) `diamond` on `PATH`.
+Optional Perseus (`perseus` on `PATH`, plus `perseus setup <db>`) enables
+`--run-perseus --perseus-db <db>` to reclassify Natural reads via [Perseus](https://github.com/matnguyen/perseus).
 Kraken2 installation process can be found on their wiki: https://github.com/DerrickWood/kraken2/wiki/Manual.
 Similarly installing diamond can be found in their wiki: https://github.com/bbuchfink/diamond/wiki/2.-Installation,
 
