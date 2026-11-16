@@ -28,27 +28,28 @@ from plasmidScreen.lib.models import (
     QueryMatchConfidence,
     SampleReferenceRank,
     ScreenResult,
-    SupportDataTypes,
+    # SupportDataTypes,  # minimap presets; disabled
 )
 
 logger = logging.getLogger(__name__)
 
-# PAF mandatory columns (0-based indices) — legacy minimap2 path.
-_PAF_QNAME = 0
-_PAF_QLEN = 1
-_PAF_QSTART = 2
-_PAF_QEND = 3
-_PAF_STRAND = 4
-_PAF_TNAME = 5
-_PAF_TLEN = 6
-_PAF_TSTART = 7
-_PAF_TEND = 8
-_PAF_NMATCH = 9
-_PAF_ALNLEN = 10
-_PAF_MAPQ = 11
-_PAF_MIN_COLS = 12
-MIN_ALIGN_LEN = 50
-
+# Minimap/PAF disabled — re-enable with MinimapReferenceSearchEngine below.
+# # PAF mandatory columns (0-based indices) — legacy minimap2 path.
+# _PAF_QNAME = 0
+# _PAF_QLEN = 1
+# _PAF_QSTART = 2
+# _PAF_QEND = 3
+# _PAF_STRAND = 4
+# _PAF_TNAME = 5
+# _PAF_TLEN = 6
+# _PAF_TSTART = 7
+# _PAF_TEND = 8
+# _PAF_NMATCH = 9
+# _PAF_ALNLEN = 10
+# _PAF_MAPQ = 11
+# _PAF_MIN_COLS = 12
+# MIN_ALIGN_LEN = 50
+#
 # BLAST outfmt 6 columns.
 _BLAST_QSEQID = 0
 _BLAST_SSEQID = 1
@@ -72,7 +73,7 @@ class HitFilterConfig:
     min_bitscore: float = 50.0
     top_n_references: int = 5
     max_evalue: Optional[float] = None
-    # Legacy aliases used by older callers / minimap path.
+    # Legacy aliases used by older callers.
     top_n: int = 5
     min_identity: float = 0.0
     min_mapq: int = 0
@@ -98,7 +99,7 @@ class ReferenceSearchConfig:
     reference_db: Path
     database_source: Optional[str] = None
     threads: int = 4
-    data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT
+    # data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT  # minimap preset; disabled
     filters: HitFilterConfig = field(default_factory=HitFilterConfig)
     confidence_weights: ConfidenceModelWeights = field(
         default_factory=ConfidenceModelWeights
@@ -107,8 +108,7 @@ class ReferenceSearchConfig:
     run_blast: bool = True
     blastn_binary: str = "blastn"
     blast_task: str = "blastn"
-    # Legacy minimap toggle (optional backend).
-    run_minimap: bool = False
+    # run_minimap: bool = False  # Minimap backend disabled
 
 
 @dataclass(frozen=True)
@@ -135,94 +135,95 @@ class SampleReferenceSearchResult:
     top_references: tuple[SampleReferenceRank, ...] = ()
 
 
-def read_minimap_output(path: str | Path) -> list[str]:
-    """Load minimap2 PAF (or SAM) lines from a saved file."""
-    return Path(path).read_text(encoding="utf-8").splitlines()
-
-
-def parse_paf_line(line: str, *, database_source: str) -> QueryMatchConfidence | None:
-    """Parse one PAF record into a :class:`QueryMatchConfidence` alignment row."""
-    if not line or line.startswith("@"):  # skip SAM headers if present
-        return None
-    parts = line.rstrip("\n").split("\t")
-    if len(parts) < _PAF_MIN_COLS:
-        return None
-    try:
-        q_start = int(parts[_PAF_QSTART])
-        q_end = int(parts[_PAF_QEND])
-        nmatch = int(parts[_PAF_NMATCH])
-        aln_len = int(parts[_PAF_ALNLEN])
-        mapq = int(parts[_PAF_MAPQ])
-        q_len = int(parts[_PAF_QLEN])
-        t_len = int(parts[_PAF_TLEN])
-        t_start = int(parts[_PAF_TSTART])
-        t_end = int(parts[_PAF_TEND])
-    except ValueError:
-        return None
-    if aln_len <= 0:
-        return None
-
-    identity = 100.0 * nmatch / aln_len
-    strand = parts[_PAF_STRAND]
-    metadata: dict = {
-        "strand": strand,
-        "query_length": q_len,
-        "target_start": t_start,
-        "target_end": t_end,
-        "target_length": t_len,
-        "mapq": mapq,
-        "n_matches": nmatch,
-        "alignment_tool": "minimap2",
-    }
-    # Optional PAF tags (dv:f divergence, etc.).
-    for tag in parts[_PAF_MIN_COLS:]:
-        if tag.startswith("dv:f:"):
-            try:
-                metadata["divergence"] = float(tag.split(":", 2)[2])
-            except ValueError:
-                pass
-    return QueryMatchConfidence(
-        accession_id=parts[_PAF_TNAME],
-        database_source=database_source,
-        match_score=float(nmatch),
-        sequence_identity=identity,
-        query_id=parts[_PAF_QNAME],
-        evalue=None,
-        bitscore=None,
-        alignment_length=aln_len,
-        query_start=q_start,
-        query_end=q_end,
-        mapq=mapq,
-        target_start=t_start,
-        target_end=t_end,
-        target_length=t_len,
-        functional_metadata=metadata,
-    )
-
-
-def parse_minimap_paf(
-        lines: Iterable[str],
-        *,
-        database_source: str,
-) -> dict[str, list[QueryMatchConfidence]]:
-    """Parse minimap2 PAF lines into query_id -> hits (sorted by match_score)."""
-    out: dict[str, list[QueryMatchConfidence]] = {}
-    for line in lines:
-        hit = parse_paf_line(line, database_source=database_source)
-        if hit is None or hit.query_id is None:
-            continue
-        out.setdefault(hit.query_id, []).append(hit)
-    for rid in out:
-        out[rid].sort(
-            key=lambda h: (
-                -h.match_score,
-                -(h.mapq or 0),
-                -(h.sequence_identity or 0.0),
-            )
-        )
-    return out
-
-
+# Minimap/PAF parsers disabled.
+# def read_minimap_output(path: str | Path) -> list[str]:
+#     """Load minimap2 PAF (or SAM) lines from a saved file."""
+#     return Path(path).read_text(encoding="utf-8").splitlines()
+#
+#
+# def parse_paf_line(line: str, *, database_source: str) -> QueryMatchConfidence | None:
+#     """Parse one PAF record into a :class:`QueryMatchConfidence` alignment row."""
+#     if not line or line.startswith("@"):  # skip SAM headers if present
+#         return None
+#     parts = line.rstrip("\n").split("\t")
+#     if len(parts) < _PAF_MIN_COLS:
+#         return None
+#     try:
+#         q_start = int(parts[_PAF_QSTART])
+#         q_end = int(parts[_PAF_QEND])
+#         nmatch = int(parts[_PAF_NMATCH])
+#         aln_len = int(parts[_PAF_ALNLEN])
+#         mapq = int(parts[_PAF_MAPQ])
+#         q_len = int(parts[_PAF_QLEN])
+#         t_len = int(parts[_PAF_TLEN])
+#         t_start = int(parts[_PAF_TSTART])
+#         t_end = int(parts[_PAF_TEND])
+#     except ValueError:
+#         return None
+#     if aln_len <= 0:
+#         return None
+#
+#     identity = 100.0 * nmatch / aln_len
+#     strand = parts[_PAF_STRAND]
+#     metadata: dict = {
+#         "strand": strand,
+#         "query_length": q_len,
+#         "target_start": t_start,
+#         "target_end": t_end,
+#         "target_length": t_len,
+#         "mapq": mapq,
+#         "n_matches": nmatch,
+#         "alignment_tool": "minimap2",
+#     }
+#     # Optional PAF tags (dv:f divergence, etc.).
+#     for tag in parts[_PAF_MIN_COLS:]:
+#         if tag.startswith("dv:f:"):
+#             try:
+#                 metadata["divergence"] = float(tag.split(":", 2)[2])
+#             except ValueError:
+#                 pass
+#     return QueryMatchConfidence(
+#         accession_id=parts[_PAF_TNAME],
+#         database_source=database_source,
+#         match_score=float(nmatch),
+#         sequence_identity=identity,
+#         query_id=parts[_PAF_QNAME],
+#         evalue=None,
+#         bitscore=None,
+#         alignment_length=aln_len,
+#         query_start=q_start,
+#         query_end=q_end,
+#         mapq=mapq,
+#         target_start=t_start,
+#         target_end=t_end,
+#         target_length=t_len,
+#         functional_metadata=metadata,
+#     )
+#
+#
+# def parse_minimap_paf(
+#         lines: Iterable[str],
+#         *,
+#         database_source: str,
+# ) -> dict[str, list[QueryMatchConfidence]]:
+#     """Parse minimap2 PAF lines into query_id -> hits (sorted by match_score)."""
+#     out: dict[str, list[QueryMatchConfidence]] = {}
+#     for line in lines:
+#         hit = parse_paf_line(line, database_source=database_source)
+#         if hit is None or hit.query_id is None:
+#             continue
+#         out.setdefault(hit.query_id, []).append(hit)
+#     for rid in out:
+#         out[rid].sort(
+#             key=lambda h: (
+#                 -h.match_score,
+#                 -(h.mapq or 0),
+#                 -(h.sequence_identity or 0.0),
+#             )
+#         )
+#     return out
+#
+#
 def _bitscore_of(hit: QueryMatchConfidence) -> float:
     if hit.bitscore is not None:
         return float(hit.bitscore)
@@ -663,7 +664,7 @@ def write_engineered_query_fasta(
         output_path: str | Path | None = None,
 ) -> Path | None:
     """
-    Write a temporary FASTA of engineered read IDs for minimap2.
+    Write a temporary FASTA of engineered read IDs for blastn.
 
     Returns ``None`` when ``query_ids`` is empty.
     """
@@ -699,7 +700,7 @@ def write_engineered_query_fasta(
 
     SeqIO.write(records, str(out), "fasta")
     logger.info(
-        "Wrote %d engineered quer(ies) for minimap2 to %s",
+        "Wrote %d engineered quer(ies) for blastn to %s",
         len(records),
         out,
     )
@@ -832,114 +833,115 @@ class BlastnReferenceSearchEngine(ReferenceSearchEngine):
         )
 
 
-class MinimapReferenceSearchEngine(ReferenceSearchEngine):
-    """
-    Legacy nucleotide alignment search via local minimap2.
-
-    Prefer :class:`BlastnReferenceSearchEngine` for new workflows.
-    """
-
-    def __init__(self, config: ReferenceSearchConfig) -> None:
-        self.config = config
-        self.database_source = (
-                config.database_source
-                or f"minimap2:{Path(config.reference_db).name}"
-        )
-
-    def search_batch(
-            self,
-            query_fasta: str | Path,
-            *,
-            query_ids: Sequence[str] | None = None,
-    ) -> SampleReferenceSearchResult:
-        t0 = time.perf_counter()
-        lengths = read_query_lengths(query_fasta)
-        lines = self._resolve_alignment_lines(query_fasta)
-        result = self._matches_from_lines(lines, query_lengths=lengths)
-        matches = result.matches
-
-        if query_ids is not None:
-            ordered = {
-                qid: matches.get(qid, QueryReferenceMatch(hits=()))
-                for qid in query_ids
-            }
-        else:
-            ordered = matches
-
-        elapsed = time.perf_counter() - t0
-        n_with_hits = sum(1 for m in ordered.values() if m.hits)
-        n_hits = sum(len(m.hits) for m in ordered.values())
-        logger.info(
-            "minimap2 reference search finished in %.3fs: %d queries, "
-            "%d with ≥1 retained hit, %d total hits, top_refs=%s (database=%s)",
-            elapsed,
-            len(ordered),
-            n_with_hits,
-            n_hits,
-            [r.accession_id for r in result.top_references],
-            self.database_source,
-        )
-        return SampleReferenceSearchResult(
-            matches=ordered, top_references=result.top_references
-        )
-
-    def search_from_paf_lines(
-            self,
-            lines: Iterable[str],
-            *,
-            query_ids: Sequence[str] | None = None,
-            query_lengths: Mapping[str, int] | None = None,
-    ) -> SampleReferenceSearchResult:
-        """Parse/filter precomputed minimap2 PAF lines (no subprocess)."""
-        result = self._matches_from_lines(lines, query_lengths=query_lengths)
-        if query_ids is None:
-            return result
-        ordered = {
-            qid: result.matches.get(qid, QueryReferenceMatch(hits=()))
-            for qid in query_ids
-        }
-        return SampleReferenceSearchResult(
-            matches=ordered, top_references=result.top_references
-        )
-
-    def _resolve_alignment_lines(self, query_fasta: str | Path) -> list[str]:
-        cfg = self.config
-        if not cfg.run_minimap:
-            if cfg.output_path is None:
-                raise ValueError(
-                    "output_path is required when run_minimap=False "
-                    "(precomputed minimap2 PAF for reference search)."
-                )
-            path = Path(cfg.output_path)
-            if not path.is_file():
-                raise FileNotFoundError(f"minimap2 output not found: {path}")
-            logger.info("Loading reference-search minimap2 PAF from %s", path)
-            return read_minimap_output(path)
-
-        return run_minimap2_alignment(
-            Path(query_fasta),
-            Path(cfg.reference_db),
-            threads=cfg.threads,
-            data_type=cfg.data_type,
-            secondary_n=max(cfg.filters.secondary_n, cfg.filters.top_n, 1),
-            output_path=cfg.output_path,
-        )
-
-    def _matches_from_lines(
-            self,
-            lines: Iterable[str],
-            *,
-            query_lengths: Mapping[str, int] | None = None,
-    ) -> SampleReferenceSearchResult:
-        parsed = parse_minimap_paf(lines, database_source=self.database_source)
-        return build_query_matches(
-            parsed,
-            self.config.filters,
-            query_lengths=query_lengths,
-            confidence_weights=self.config.confidence_weights,
-        )
-
-
+# MinimapReferenceSearchEngine disabled — blastn is the live backend.
+# class MinimapReferenceSearchEngine(ReferenceSearchEngine):
+#     """
+#     Legacy nucleotide alignment search via local minimap2.
+#
+#     Prefer :class:`BlastnReferenceSearchEngine` for new workflows.
+#     """
+#
+#     def __init__(self, config: ReferenceSearchConfig) -> None:
+#         self.config = config
+#         self.database_source = (
+#                 config.database_source
+#                 or f"minimap2:{Path(config.reference_db).name}"
+#         )
+#
+#     def search_batch(
+#             self,
+#             query_fasta: str | Path,
+#             *,
+#             query_ids: Sequence[str] | None = None,
+#     ) -> SampleReferenceSearchResult:
+#         t0 = time.perf_counter()
+#         lengths = read_query_lengths(query_fasta)
+#         lines = self._resolve_alignment_lines(query_fasta)
+#         result = self._matches_from_lines(lines, query_lengths=lengths)
+#         matches = result.matches
+#
+#         if query_ids is not None:
+#             ordered = {
+#                 qid: matches.get(qid, QueryReferenceMatch(hits=()))
+#                 for qid in query_ids
+#             }
+#         else:
+#             ordered = matches
+#
+#         elapsed = time.perf_counter() - t0
+#         n_with_hits = sum(1 for m in ordered.values() if m.hits)
+#         n_hits = sum(len(m.hits) for m in ordered.values())
+#         logger.info(
+#             "minimap2 reference search finished in %.3fs: %d queries, "
+#             "%d with ≥1 retained hit, %d total hits, top_refs=%s (database=%s)",
+#             elapsed,
+#             len(ordered),
+#             n_with_hits,
+#             n_hits,
+#             [r.accession_id for r in result.top_references],
+#             self.database_source,
+#         )
+#         return SampleReferenceSearchResult(
+#             matches=ordered, top_references=result.top_references
+#         )
+#
+#     def search_from_paf_lines(
+#             self,
+#             lines: Iterable[str],
+#             *,
+#             query_ids: Sequence[str] | None = None,
+#             query_lengths: Mapping[str, int] | None = None,
+#     ) -> SampleReferenceSearchResult:
+#         """Parse/filter precomputed minimap2 PAF lines (no subprocess)."""
+#         result = self._matches_from_lines(lines, query_lengths=query_lengths)
+#         if query_ids is None:
+#             return result
+#         ordered = {
+#             qid: result.matches.get(qid, QueryReferenceMatch(hits=()))
+#             for qid in query_ids
+#         }
+#         return SampleReferenceSearchResult(
+#             matches=ordered, top_references=result.top_references
+#         )
+#
+#     def _resolve_alignment_lines(self, query_fasta: str | Path) -> list[str]:
+#         cfg = self.config
+#         if not cfg.run_minimap:
+#             if cfg.output_path is None:
+#                 raise ValueError(
+#                     "output_path is required when run_minimap=False "
+#                     "(precomputed minimap2 PAF for reference search)."
+#                 )
+#             path = Path(cfg.output_path)
+#             if not path.is_file():
+#                 raise FileNotFoundError(f"minimap2 output not found: {path}")
+#             logger.info("Loading reference-search minimap2 PAF from %s", path)
+#             return read_minimap_output(path)
+#
+#         return run_minimap2_alignment(
+#             Path(query_fasta),
+#             Path(cfg.reference_db),
+#             threads=cfg.threads,
+#             data_type=cfg.data_type,
+#             secondary_n=max(cfg.filters.secondary_n, cfg.filters.top_n, 1),
+#             output_path=cfg.output_path,
+#         )
+#
+#     def _matches_from_lines(
+#             self,
+#             lines: Iterable[str],
+#             *,
+#             query_lengths: Mapping[str, int] | None = None,
+#     ) -> SampleReferenceSearchResult:
+#         parsed = parse_minimap_paf(lines, database_source=self.database_source)
+#         return build_query_matches(
+#             parsed,
+#             self.config.filters,
+#             query_lengths=query_lengths,
+#             confidence_weights=self.config.confidence_weights,
+#         )
+#
+#
 # Preferred engine alias.
 DiamondReferenceSearchEngine = BlastnReferenceSearchEngine
 
@@ -1004,58 +1006,59 @@ def run_blastn_alignment(
     return lines
 
 
-def run_minimap2_alignment(
-        reads_path: Path,
-        reference_db: Path,
-        *,
-        data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT,
-        threads: int = 4,
-        secondary_n: int = 5,
-        output_path: str | Path | None = None,
-) -> list[str]:
-    """
-    Run minimap2 and return PAF alignment lines.
-
-    ``reference_db`` may be a nucleotide FASTA or a prebuilt ``.mmi`` index.
-    """
-    reads_path = Path(reads_path)
-    reference_db = Path(reference_db)
-    preset = data_type.value
-    cmd: list[str] = [
-        "minimap2",
-        "-x",
-        preset,
-        "--secondary=yes",
-        "-N",
-        str(secondary_n),
-        "-t",
-        str(threads),
-        str(reference_db),
-        str(reads_path),
-    ]
-
-    logger.info("Running minimap2 reference search: %s", " ".join(cmd))
-    t0 = time.perf_counter()
-    if output_path is not None:
-        out = Path(output_path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        cmd.extend(["-o", str(out)])
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-        elapsed = time.perf_counter() - t0
-        logger.info("minimap2 wrote %s in %.3fs", out, elapsed)
-        return read_minimap_output(out)
-
-    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    elapsed = time.perf_counter() - t0
-    lines = proc.stdout.splitlines()
-    logger.info(
-        "minimap2 returned %d PAF lines in %.3fs",
-        len(lines),
-        elapsed,
-    )
-    return lines
-
-
+# run_minimap2_alignment disabled.
+# def run_minimap2_alignment(
+#         reads_path: Path,
+#         reference_db: Path,
+#         *,
+#         data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT,
+#         threads: int = 4,
+#         secondary_n: int = 5,
+#         output_path: str | Path | None = None,
+# ) -> list[str]:
+#     """
+#     Run minimap2 and return PAF alignment lines.
+#
+#     ``reference_db`` may be a nucleotide FASTA or a prebuilt ``.mmi`` index.
+#     """
+#     reads_path = Path(reads_path)
+#     reference_db = Path(reference_db)
+#     preset = data_type.value
+#     cmd: list[str] = [
+#         "minimap2",
+#         "-x",
+#         preset,
+#         "--secondary=yes",
+#         "-N",
+#         str(secondary_n),
+#         "-t",
+#         str(threads),
+#         str(reference_db),
+#         str(reads_path),
+#     ]
+#
+#     logger.info("Running minimap2 reference search: %s", " ".join(cmd))
+#     t0 = time.perf_counter()
+#     if output_path is not None:
+#         out = Path(output_path)
+#         out.parent.mkdir(parents=True, exist_ok=True)
+#         cmd.extend(["-o", str(out)])
+#         subprocess.run(cmd, check=True, capture_output=True, text=True)
+#         elapsed = time.perf_counter() - t0
+#         logger.info("minimap2 wrote %s in %.3fs", out, elapsed)
+#         return read_minimap_output(out)
+#
+#     proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+#     elapsed = time.perf_counter() - t0
+#     lines = proc.stdout.splitlines()
+#     logger.info(
+#         "minimap2 returned %d PAF lines in %.3fs",
+#         len(lines),
+#         elapsed,
+#     )
+#     return lines
+#
+#
 def enrich_screen_result(
         screen_result: ScreenResult,
         matches_by_read: Mapping[str, QueryReferenceMatch | Sequence[QueryMatchConfidence]]

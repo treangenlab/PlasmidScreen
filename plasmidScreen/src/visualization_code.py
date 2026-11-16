@@ -293,7 +293,7 @@ def load_genbank_annotations(
     """
     Parse GenBank/GenPept records into accession -> annotation intervals.
 
-    Coordinates are converted to 0-based half-open to match minimap2 / PAF.
+    Coordinates are converted to 0-based half-open to match blastn hit coords.
     Compound locations are exploded into parts. Records are indexed by ``id``,
     ``name``, and accession tokens so pileup accessions can resolve flexibly.
     """
@@ -706,7 +706,7 @@ def _safe_filename(accession_id: str) -> str:
 
 
 def _annotation_lookup_keys(accession_id: str) -> list[str]:
-    """Candidate keys for matching GenBank annotations to a minimap target ID."""
+    """Candidate keys for matching GenBank annotations to a reference accession."""
     keys: list[str] = []
     seen: set[str] = set()
 

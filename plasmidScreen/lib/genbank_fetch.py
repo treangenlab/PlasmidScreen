@@ -59,7 +59,7 @@ def default_genbank_cache_dir() -> Path:
 
 def resolve_ncbi_accession(hit_id: str) -> ResolvedAccession | None:
     """
-    Extract a downloadable NCBI accession from a minimap / Kraken-style hit ID.
+    Extract a downloadable NCBI accession from a BLAST / Kraken-style hit ID.
 
     Returns ``None`` for IMGPR and other non-NCBI local names.
     """
@@ -377,7 +377,7 @@ def annotations_for_hit_ids(
     """
     Build ``hit_id -> annotations`` for reference accessions that resolve to NCBI.
 
-    Annotations are keyed by the **original hit ID** (minimap target name) so
+    Annotations are keyed by the **original hit ID** (BLAST subject / accession) so
     pileup lookup can use the DB accession verbatim. By default only the on-disk
     cache is used (airgapped-safe after ``prefetch_genbank_from_fasta``). Set
     ``fetch=True`` to download missing records from NCBI during this call.
