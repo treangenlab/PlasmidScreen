@@ -28,28 +28,10 @@ from plasmidScreen.lib.models import (
     QueryMatchConfidence,
     SampleReferenceRank,
     ScreenResult,
-    # SupportDataTypes,  # minimap presets; disabled
 )
 
 logger = logging.getLogger(__name__)
 
-# Minimap/PAF disabled — re-enable with MinimapReferenceSearchEngine below.
-# # PAF mandatory columns (0-based indices) — legacy minimap2 path.
-# _PAF_QNAME = 0
-# _PAF_QLEN = 1
-# _PAF_QSTART = 2
-# _PAF_QEND = 3
-# _PAF_STRAND = 4
-# _PAF_TNAME = 5
-# _PAF_TLEN = 6
-# _PAF_TSTART = 7
-# _PAF_TEND = 8
-# _PAF_NMATCH = 9
-# _PAF_ALNLEN = 10
-# _PAF_MAPQ = 11
-# _PAF_MIN_COLS = 12
-# MIN_ALIGN_LEN = 50
-#
 # BLAST outfmt 6 columns.
 _BLAST_QSEQID = 0
 _BLAST_SSEQID = 1
@@ -64,7 +46,6 @@ _BLAST_BITSCORE = 11
 _BLAST_MIN_COLS = 12
 
 _FASTA_SUFFIXES = {".fa", ".fasta", ".fna", ".ffn", ".fas", ".faa"}
-
 
 @dataclass(frozen=True)
 class HitFilterConfig:
@@ -81,7 +62,6 @@ class HitFilterConfig:
     min_cover_gain_bp: int = 15
     secondary_n: int = 50
 
-
 @dataclass(frozen=True)
 class ConfidenceModelWeights:
     """Unused by the BLAST path; kept for backwards-compatible configs."""
@@ -91,7 +71,6 @@ class ConfidenceModelWeights:
     identity: float = 0.30
     uniqueness: float = 0.25
 
-
 @dataclass
 class ReferenceSearchConfig:
     """Runtime options for reference search engines."""
@@ -99,7 +78,6 @@ class ReferenceSearchConfig:
     reference_db: Path
     database_source: Optional[str] = None
     threads: int = 4
-    # data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT  # minimap preset; disabled
     filters: HitFilterConfig = field(default_factory=HitFilterConfig)
     confidence_weights: ConfidenceModelWeights = field(
         default_factory=ConfidenceModelWeights
@@ -108,8 +86,6 @@ class ReferenceSearchConfig:
     run_blast: bool = True
     blastn_binary: str = "blastn"
     blast_task: str = "blastn"
-    # run_minimap: bool = False  # Minimap backend disabled
-
 
 @dataclass(frozen=True)
 class QueryReferenceMatch:
@@ -135,100 +111,10 @@ class SampleReferenceSearchResult:
     top_references: tuple[SampleReferenceRank, ...] = ()
 
 
-# Minimap/PAF parsers disabled.
-# def read_minimap_output(path: str | Path) -> list[str]:
-#     """Load minimap2 PAF (or SAM) lines from a saved file."""
-#     return Path(path).read_text(encoding="utf-8").splitlines()
-#
-#
-# def parse_paf_line(line: str, *, database_source: str) -> QueryMatchConfidence | None:
-#     """Parse one PAF record into a :class:`QueryMatchConfidence` alignment row."""
-#     if not line or line.startswith("@"):  # skip SAM headers if present
-#         return None
-#     parts = line.rstrip("\n").split("\t")
-#     if len(parts) < _PAF_MIN_COLS:
-#         return None
-#     try:
-#         q_start = int(parts[_PAF_QSTART])
-#         q_end = int(parts[_PAF_QEND])
-#         nmatch = int(parts[_PAF_NMATCH])
-#         aln_len = int(parts[_PAF_ALNLEN])
-#         mapq = int(parts[_PAF_MAPQ])
-#         q_len = int(parts[_PAF_QLEN])
-#         t_len = int(parts[_PAF_TLEN])
-#         t_start = int(parts[_PAF_TSTART])
-#         t_end = int(parts[_PAF_TEND])
-#     except ValueError:
-#         return None
-#     if aln_len <= 0:
-#         return None
-#
-#     identity = 100.0 * nmatch / aln_len
-#     strand = parts[_PAF_STRAND]
-#     metadata: dict = {
-#         "strand": strand,
-#         "query_length": q_len,
-#         "target_start": t_start,
-#         "target_end": t_end,
-#         "target_length": t_len,
-#         "mapq": mapq,
-#         "n_matches": nmatch,
-#         "alignment_tool": "minimap2",
-#     }
-#     # Optional PAF tags (dv:f divergence, etc.).
-#     for tag in parts[_PAF_MIN_COLS:]:
-#         if tag.startswith("dv:f:"):
-#             try:
-#                 metadata["divergence"] = float(tag.split(":", 2)[2])
-#             except ValueError:
-#                 pass
-#     return QueryMatchConfidence(
-#         accession_id=parts[_PAF_TNAME],
-#         database_source=database_source,
-#         match_score=float(nmatch),
-#         sequence_identity=identity,
-#         query_id=parts[_PAF_QNAME],
-#         evalue=None,
-#         bitscore=None,
-#         alignment_length=aln_len,
-#         query_start=q_start,
-#         query_end=q_end,
-#         mapq=mapq,
-#         target_start=t_start,
-#         target_end=t_end,
-#         target_length=t_len,
-#         functional_metadata=metadata,
-#     )
-#
-#
-# def parse_minimap_paf(
-#         lines: Iterable[str],
-#         *,
-#         database_source: str,
-# ) -> dict[str, list[QueryMatchConfidence]]:
-#     """Parse minimap2 PAF lines into query_id -> hits (sorted by match_score)."""
-#     out: dict[str, list[QueryMatchConfidence]] = {}
-#     for line in lines:
-#         hit = parse_paf_line(line, database_source=database_source)
-#         if hit is None or hit.query_id is None:
-#             continue
-#         out.setdefault(hit.query_id, []).append(hit)
-#     for rid in out:
-#         out[rid].sort(
-#             key=lambda h: (
-#                 -h.match_score,
-#                 -(h.mapq or 0),
-#                 -(h.sequence_identity or 0.0),
-#             )
-#         )
-#     return out
-#
-#
 def _bitscore_of(hit: QueryMatchConfidence) -> float:
     if hit.bitscore is not None:
         return float(hit.bitscore)
     return float(hit.match_score)
-
 
 def parse_blast_outfmt6_line(
         line: str,
@@ -280,7 +166,6 @@ def parse_blast_outfmt6_line(
         },
     )
 
-
 def parse_blast_outfmt6(
         lines: Iterable[str],
         *,
@@ -297,7 +182,6 @@ def parse_blast_outfmt6(
         out[rid].sort(key=lambda h: (-_bitscore_of(h), -(h.sequence_identity or 0.0)))
     return out
 
-
 def _pass_significance(hit: QueryMatchConfidence, cfg: HitFilterConfig) -> bool:
     if cfg.max_evalue is not None and hit.evalue is not None and hit.evalue > cfg.max_evalue:
         return False
@@ -309,7 +193,6 @@ def _pass_significance(hit: QueryMatchConfidence, cfg: HitFilterConfig) -> bool:
         return False
     return True
 
-
 def filter_significant_hits(
         hits: Sequence[QueryMatchConfidence],
         config: HitFilterConfig | None = None,
@@ -318,10 +201,8 @@ def filter_significant_hits(
     cfg = config or HitFilterConfig()
     return [h for h in hits if _pass_significance(h, cfg)]
 
-
 def _top_n_references(cfg: HitFilterConfig) -> int:
     return cfg.top_n_references if cfg.top_n_references > 0 else cfg.top_n
-
 
 def rank_sample_references(
         hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
@@ -361,7 +242,6 @@ def rank_sample_references(
         )
     ranks.sort(key=lambda r: (-r.n_reads, -r.sum_bitscore, r.accession_id))
     return tuple(ranks[:top_n])
-
 
 def make_primary_summary(
         selected_hits: Sequence[QueryMatchConfidence],
@@ -410,14 +290,12 @@ def make_primary_summary(
         features={"bitscore": _bitscore_of(primary), "coverage": coverage},
     )
 
-
 def _hit_sort_key(hit: QueryMatchConfidence) -> tuple[float, float, float]:
     return (
         -hit.match_score,
         -(hit.mapq or 0),
         -(hit.sequence_identity or 0.0),
     )
-
 
 def select_best_hits(
         hits: Sequence[QueryMatchConfidence],
@@ -449,7 +327,6 @@ def select_best_hits(
 
     kept.sort(key=_hit_sort_key)
     return kept[: cfg.top_n]
-
 
 def select_tiling_hits(
         hits: Sequence[QueryMatchConfidence],
@@ -513,7 +390,6 @@ def select_tiling_hits(
     )
     return selected
 
-
 def select_best_hits_by_query(
         hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
         config: HitFilterConfig | None = None,
@@ -529,12 +405,10 @@ def select_best_hits_by_query(
         for query_id, hits in hits_by_query.items()
     }
 
-
 def _interval_overlap_bp(
         a_start: int, a_end: int, b_start: int, b_end: int
 ) -> int:
     return max(0, min(a_end, b_end) - max(a_start, b_start))
-
 
 def competing_subject_counts(
         selected: Sequence[QueryMatchConfidence],
@@ -559,7 +433,6 @@ def competing_subject_counts(
         counts.append(max(1, len(subjects)))
     return counts
 
-
 def covered_query_bases(
         hits: Sequence[QueryMatchConfidence],
         query_length_bp: int,
@@ -577,7 +450,6 @@ def covered_query_bases(
             covered[pos] = True
     return sum(covered)
 
-
 def compute_match_confidence(
         selected_hits: Sequence[QueryMatchConfidence],
         *,
@@ -588,7 +460,6 @@ def compute_match_confidence(
     """Primary summary for retained hits (bitscore-best alignment)."""
     del candidates, query_length_bp, weights  # unused; kept for call-site compat
     return make_primary_summary(selected_hits)
-
 
 def build_query_matches(
         hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
@@ -640,13 +511,11 @@ def build_query_matches(
         )
     return SampleReferenceSearchResult(matches=out, top_references=top_refs)
 
-
 def _seq_format(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix in {".fq", ".fastq"}:
         return "fastq"
     return "fasta"
-
 
 def read_query_lengths(fasta_path: str | Path) -> dict[str, int]:
     """Map sequence ID -> length from a FASTA/FASTQ file."""
@@ -655,7 +524,6 @@ def read_query_lengths(fasta_path: str | Path) -> dict[str, int]:
         record.id: len(record.seq)
         for record in SeqIO.parse(str(path), _seq_format(path))
     }
-
 
 def write_engineered_query_fasta(
         query_ids: set[str],
@@ -706,7 +574,6 @@ def write_engineered_query_fasta(
     )
     return out
 
-
 class ReferenceSearchEngine(ABC):
     """Abstract interface for batch reference-database lookup."""
 
@@ -718,7 +585,6 @@ class ReferenceSearchEngine(ABC):
             query_ids: Sequence[str] | None = None,
     ) -> SampleReferenceSearchResult:
         """Query the reference database for sequences in ``query_fasta``."""
-
 
 class BlastnReferenceSearchEngine(ReferenceSearchEngine):
     """
@@ -832,123 +698,11 @@ class BlastnReferenceSearchEngine(ReferenceSearchEngine):
             query_lengths=query_lengths,
         )
 
-
-# MinimapReferenceSearchEngine disabled — blastn is the live backend.
-# class MinimapReferenceSearchEngine(ReferenceSearchEngine):
-#     """
-#     Legacy nucleotide alignment search via local minimap2.
-#
-#     Prefer :class:`BlastnReferenceSearchEngine` for new workflows.
-#     """
-#
-#     def __init__(self, config: ReferenceSearchConfig) -> None:
-#         self.config = config
-#         self.database_source = (
-#                 config.database_source
-#                 or f"minimap2:{Path(config.reference_db).name}"
-#         )
-#
-#     def search_batch(
-#             self,
-#             query_fasta: str | Path,
-#             *,
-#             query_ids: Sequence[str] | None = None,
-#     ) -> SampleReferenceSearchResult:
-#         t0 = time.perf_counter()
-#         lengths = read_query_lengths(query_fasta)
-#         lines = self._resolve_alignment_lines(query_fasta)
-#         result = self._matches_from_lines(lines, query_lengths=lengths)
-#         matches = result.matches
-#
-#         if query_ids is not None:
-#             ordered = {
-#                 qid: matches.get(qid, QueryReferenceMatch(hits=()))
-#                 for qid in query_ids
-#             }
-#         else:
-#             ordered = matches
-#
-#         elapsed = time.perf_counter() - t0
-#         n_with_hits = sum(1 for m in ordered.values() if m.hits)
-#         n_hits = sum(len(m.hits) for m in ordered.values())
-#         logger.info(
-#             "minimap2 reference search finished in %.3fs: %d queries, "
-#             "%d with ≥1 retained hit, %d total hits, top_refs=%s (database=%s)",
-#             elapsed,
-#             len(ordered),
-#             n_with_hits,
-#             n_hits,
-#             [r.accession_id for r in result.top_references],
-#             self.database_source,
-#         )
-#         return SampleReferenceSearchResult(
-#             matches=ordered, top_references=result.top_references
-#         )
-#
-#     def search_from_paf_lines(
-#             self,
-#             lines: Iterable[str],
-#             *,
-#             query_ids: Sequence[str] | None = None,
-#             query_lengths: Mapping[str, int] | None = None,
-#     ) -> SampleReferenceSearchResult:
-#         """Parse/filter precomputed minimap2 PAF lines (no subprocess)."""
-#         result = self._matches_from_lines(lines, query_lengths=query_lengths)
-#         if query_ids is None:
-#             return result
-#         ordered = {
-#             qid: result.matches.get(qid, QueryReferenceMatch(hits=()))
-#             for qid in query_ids
-#         }
-#         return SampleReferenceSearchResult(
-#             matches=ordered, top_references=result.top_references
-#         )
-#
-#     def _resolve_alignment_lines(self, query_fasta: str | Path) -> list[str]:
-#         cfg = self.config
-#         if not cfg.run_minimap:
-#             if cfg.output_path is None:
-#                 raise ValueError(
-#                     "output_path is required when run_minimap=False "
-#                     "(precomputed minimap2 PAF for reference search)."
-#                 )
-#             path = Path(cfg.output_path)
-#             if not path.is_file():
-#                 raise FileNotFoundError(f"minimap2 output not found: {path}")
-#             logger.info("Loading reference-search minimap2 PAF from %s", path)
-#             return read_minimap_output(path)
-#
-#         return run_minimap2_alignment(
-#             Path(query_fasta),
-#             Path(cfg.reference_db),
-#             threads=cfg.threads,
-#             data_type=cfg.data_type,
-#             secondary_n=max(cfg.filters.secondary_n, cfg.filters.top_n, 1),
-#             output_path=cfg.output_path,
-#         )
-#
-#     def _matches_from_lines(
-#             self,
-#             lines: Iterable[str],
-#             *,
-#             query_lengths: Mapping[str, int] | None = None,
-#     ) -> SampleReferenceSearchResult:
-#         parsed = parse_minimap_paf(lines, database_source=self.database_source)
-#         return build_query_matches(
-#             parsed,
-#             self.config.filters,
-#             query_lengths=query_lengths,
-#             confidence_weights=self.config.confidence_weights,
-#         )
-#
-#
 # Preferred engine alias.
 DiamondReferenceSearchEngine = BlastnReferenceSearchEngine
 
-
 def _reference_is_fasta(path: Path) -> bool:
     return path.suffix.lower() in _FASTA_SUFFIXES
-
 
 def run_blastn_alignment(
         reads_path: Path,
@@ -1005,60 +759,6 @@ def run_blastn_alignment(
     logger.info("blastn returned %d hit lines in %.3fs", len(lines), elapsed)
     return lines
 
-
-# run_minimap2_alignment disabled.
-# def run_minimap2_alignment(
-#         reads_path: Path,
-#         reference_db: Path,
-#         *,
-#         data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT,
-#         threads: int = 4,
-#         secondary_n: int = 5,
-#         output_path: str | Path | None = None,
-# ) -> list[str]:
-#     """
-#     Run minimap2 and return PAF alignment lines.
-#
-#     ``reference_db`` may be a nucleotide FASTA or a prebuilt ``.mmi`` index.
-#     """
-#     reads_path = Path(reads_path)
-#     reference_db = Path(reference_db)
-#     preset = data_type.value
-#     cmd: list[str] = [
-#         "minimap2",
-#         "-x",
-#         preset,
-#         "--secondary=yes",
-#         "-N",
-#         str(secondary_n),
-#         "-t",
-#         str(threads),
-#         str(reference_db),
-#         str(reads_path),
-#     ]
-#
-#     logger.info("Running minimap2 reference search: %s", " ".join(cmd))
-#     t0 = time.perf_counter()
-#     if output_path is not None:
-#         out = Path(output_path)
-#         out.parent.mkdir(parents=True, exist_ok=True)
-#         cmd.extend(["-o", str(out)])
-#         subprocess.run(cmd, check=True, capture_output=True, text=True)
-#         elapsed = time.perf_counter() - t0
-#         logger.info("minimap2 wrote %s in %.3fs", out, elapsed)
-#         return read_minimap_output(out)
-#
-#     proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
-#     elapsed = time.perf_counter() - t0
-#     lines = proc.stdout.splitlines()
-#     logger.info(
-#         "minimap2 returned %d PAF lines in %.3fs",
-#         len(lines),
-#         elapsed,
-#     )
-#     return lines
-#
-#
 def enrich_screen_result(
         screen_result: ScreenResult,
         matches_by_read: Mapping[str, QueryReferenceMatch | Sequence[QueryMatchConfidence]]
@@ -1146,7 +846,6 @@ def enrich_screen_result(
         top_engineered_references=ranks,
         engineered_mapping_hits=(),
     )
-
 
 def enrich_screen_result_with_engine(
         screen_result: ScreenResult,

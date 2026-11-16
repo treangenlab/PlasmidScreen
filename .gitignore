@@ -46,7 +46,6 @@ tmp_output.txt
 output.txt
 test_output.txt
 example_for_mike.txt
-minimap_output
 valid_hits_fasta.fasta
 blastn
 ncbi-blast-*/

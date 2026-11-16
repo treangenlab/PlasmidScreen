@@ -22,14 +22,6 @@ class MEMORY_MODE(Enum):
     HIGH = "HIGH"
 
 
-# Minimap disabled — re-enable with MinimapReferenceSearchEngine in db_search.py.
-# class SupportDataTypes(Enum):
-#     """Legacy minimap2 ``-x`` presets (reference search now defaults to blastn)."""
-#
-#     LONG_READ_ONT = "map-ont"
-#     LONG_READ_PB = "map-pb"
-#     SHORT_READ = "sr"
-#     ASM = "asm5"
 
 
 @dataclass(frozen=True)
