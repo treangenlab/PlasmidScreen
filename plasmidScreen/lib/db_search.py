@@ -1,0 +1,1189 @@
+"""
+Reference database lookup for ScreenResult enrichment.
+
+Decoupled from ML / k-mer / codon modeling. Engineered reads are searched with
+``blastn`` against a nucleotide reference (FASTA subject or BLAST DB). Hits
+above a bitscore threshold are retained; the sample's top-N reference sequences
+(by # reads covered, bitscore tiebreak) are kept for reporting and visualization.
+
+Codon CAI (DIAMOND blastx) remains a separate stage and is not used here.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import subprocess
+import tempfile
+import time
+from abc import ABC, abstractmethod
+from collections import defaultdict
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Iterable, Mapping, Optional, Sequence
+
+from Bio import SeqIO
+
+from plasmidScreen.lib.models import (
+    NO_DATABASE_MATCH_NOTE,
+    QueryMatchConfidence,
+    SampleReferenceRank,
+    ScreenResult,
+    SupportDataTypes,
+)
+
+logger = logging.getLogger(__name__)
+
+# PAF mandatory columns (0-based indices) — legacy minimap2 path.
+_PAF_QNAME = 0
+_PAF_QLEN = 1
+_PAF_QSTART = 2
+_PAF_QEND = 3
+_PAF_STRAND = 4
+_PAF_TNAME = 5
+_PAF_TLEN = 6
+_PAF_TSTART = 7
+_PAF_TEND = 8
+_PAF_NMATCH = 9
+_PAF_ALNLEN = 10
+_PAF_MAPQ = 11
+_PAF_MIN_COLS = 12
+MIN_ALIGN_LEN = 50
+
+# BLAST outfmt 6 columns.
+_BLAST_QSEQID = 0
+_BLAST_SSEQID = 1
+_BLAST_PIDENT = 2
+_BLAST_LENGTH = 3
+_BLAST_QSTART = 6
+_BLAST_QEND = 7
+_BLAST_SSTART = 8
+_BLAST_SEND = 9
+_BLAST_EVALUE = 10
+_BLAST_BITSCORE = 11
+_BLAST_MIN_COLS = 12
+
+_FASTA_SUFFIXES = {".fa", ".fasta", ".fna", ".ffn", ".fas", ".faa"}
+
+
+@dataclass(frozen=True)
+class HitFilterConfig:
+    """Thresholds for BLAST hit retention and sample-level reference ranking."""
+
+    min_bitscore: float = 50.0
+    top_n_references: int = 5
+    max_evalue: Optional[float] = None
+    # Legacy aliases used by older callers / minimap path.
+    top_n: int = 5
+    min_identity: float = 0.0
+    min_mapq: int = 0
+    tile_along_query: bool = False
+    min_cover_gain_bp: int = 15
+    secondary_n: int = 50
+
+
+@dataclass(frozen=True)
+class ConfidenceModelWeights:
+    """Unused by the BLAST path; kept for backwards-compatible configs."""
+
+    intercept: float = 0.0
+    coverage: float = 0.45
+    identity: float = 0.30
+    uniqueness: float = 0.25
+
+
+@dataclass
+class ReferenceSearchConfig:
+    """Runtime options for reference search engines."""
+
+    reference_db: Path
+    database_source: Optional[str] = None
+    threads: int = 4
+    data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT
+    filters: HitFilterConfig = field(default_factory=HitFilterConfig)
+    confidence_weights: ConfidenceModelWeights = field(
+        default_factory=ConfidenceModelWeights
+    )
+    output_path: Optional[Path] = None
+    run_blast: bool = True
+    blastn_binary: str = "blastn"
+    blast_task: str = "blastn"
+    # Legacy minimap toggle (optional backend).
+    run_minimap: bool = False
+
+
+@dataclass(frozen=True)
+class QueryReferenceMatch:
+    """Retained alignments plus a primary summary for one query sequence."""
+
+    hits: tuple[QueryMatchConfidence, ...] = ()
+    summary: Optional[QueryMatchConfidence] = None
+
+    @property
+    def confidence(self) -> Optional[float]:
+        return None if self.summary is None else self.summary.confidence
+
+    @property
+    def query_coverage(self) -> Optional[float]:
+        return None if self.summary is None else self.summary.query_coverage
+
+
+@dataclass(frozen=True)
+class SampleReferenceSearchResult:
+    """Per-query matches plus sample-wide top reference ranking."""
+
+    matches: dict[str, QueryReferenceMatch]
+    top_references: tuple[SampleReferenceRank, ...] = ()
+
+
+def read_minimap_output(path: str | Path) -> list[str]:
+    """Load minimap2 PAF (or SAM) lines from a saved file."""
+    return Path(path).read_text(encoding="utf-8").splitlines()
+
+
+def parse_paf_line(line: str, *, database_source: str) -> QueryMatchConfidence | None:
+    """Parse one PAF record into a :class:`QueryMatchConfidence` alignment row."""
+    if not line or line.startswith("@"):  # skip SAM headers if present
+        return None
+    parts = line.rstrip("\n").split("\t")
+    if len(parts) < _PAF_MIN_COLS:
+        return None
+    try:
+        q_start = int(parts[_PAF_QSTART])
+        q_end = int(parts[_PAF_QEND])
+        nmatch = int(parts[_PAF_NMATCH])
+        aln_len = int(parts[_PAF_ALNLEN])
+        mapq = int(parts[_PAF_MAPQ])
+        q_len = int(parts[_PAF_QLEN])
+        t_len = int(parts[_PAF_TLEN])
+        t_start = int(parts[_PAF_TSTART])
+        t_end = int(parts[_PAF_TEND])
+    except ValueError:
+        return None
+    if aln_len <= 0:
+        return None
+
+    identity = 100.0 * nmatch / aln_len
+    strand = parts[_PAF_STRAND]
+    metadata: dict = {
+        "strand": strand,
+        "query_length": q_len,
+        "target_start": t_start,
+        "target_end": t_end,
+        "target_length": t_len,
+        "mapq": mapq,
+        "n_matches": nmatch,
+        "alignment_tool": "minimap2",
+    }
+    # Optional PAF tags (dv:f divergence, etc.).
+    for tag in parts[_PAF_MIN_COLS:]:
+        if tag.startswith("dv:f:"):
+            try:
+                metadata["divergence"] = float(tag.split(":", 2)[2])
+            except ValueError:
+                pass
+    return QueryMatchConfidence(
+        accession_id=parts[_PAF_TNAME],
+        database_source=database_source,
+        match_score=float(nmatch),
+        sequence_identity=identity,
+        query_id=parts[_PAF_QNAME],
+        evalue=None,
+        bitscore=None,
+        alignment_length=aln_len,
+        query_start=q_start,
+        query_end=q_end,
+        mapq=mapq,
+        target_start=t_start,
+        target_end=t_end,
+        target_length=t_len,
+        functional_metadata=metadata,
+    )
+
+
+def parse_minimap_paf(
+        lines: Iterable[str],
+        *,
+        database_source: str,
+) -> dict[str, list[QueryMatchConfidence]]:
+    """Parse minimap2 PAF lines into query_id -> hits (sorted by match_score)."""
+    out: dict[str, list[QueryMatchConfidence]] = {}
+    for line in lines:
+        hit = parse_paf_line(line, database_source=database_source)
+        if hit is None or hit.query_id is None:
+            continue
+        out.setdefault(hit.query_id, []).append(hit)
+    for rid in out:
+        out[rid].sort(
+            key=lambda h: (
+                -h.match_score,
+                -(h.mapq or 0),
+                -(h.sequence_identity or 0.0),
+            )
+        )
+    return out
+
+
+def _bitscore_of(hit: QueryMatchConfidence) -> float:
+    if hit.bitscore is not None:
+        return float(hit.bitscore)
+    return float(hit.match_score)
+
+
+def parse_blast_outfmt6_line(
+        line: str,
+        *,
+        database_source: str,
+) -> QueryMatchConfidence | None:
+    """Parse one BLAST tabular (outfmt 6) line into a hit row."""
+    if not line or line.startswith("#"):
+        return None
+    parts = line.rstrip("\n").split("\t")
+    if len(parts) < _BLAST_MIN_COLS:
+        return None
+    try:
+        pident = float(parts[_BLAST_PIDENT])
+        aln_len = int(parts[_BLAST_LENGTH])
+        q_start_1 = int(parts[_BLAST_QSTART])
+        q_end_1 = int(parts[_BLAST_QEND])
+        s_start_1 = int(parts[_BLAST_SSTART])
+        s_end_1 = int(parts[_BLAST_SEND])
+        evalue = float(parts[_BLAST_EVALUE])
+        bitscore = float(parts[_BLAST_BITSCORE])
+    except ValueError:
+        return None
+    if aln_len <= 0:
+        return None
+
+    # BLAST coords are 1-based inclusive; convert to 0-based half-open.
+    q0 = min(q_start_1, q_end_1) - 1
+    q1 = max(q_start_1, q_end_1)
+    t0 = min(s_start_1, s_end_1) - 1
+    t1 = max(s_start_1, s_end_1)
+    strand = "+" if s_start_1 <= s_end_1 else "-"
+    return QueryMatchConfidence(
+        accession_id=parts[_BLAST_SSEQID],
+        database_source=database_source,
+        match_score=bitscore,
+        sequence_identity=pident,
+        query_id=parts[_BLAST_QSEQID],
+        evalue=evalue,
+        bitscore=bitscore,
+        alignment_length=aln_len,
+        query_start=q0,
+        query_end=q1,
+        target_start=t0,
+        target_end=t1,
+        functional_metadata={
+            "strand": strand,
+            "alignment_tool": "blastn",
+        },
+    )
+
+
+def parse_blast_outfmt6(
+        lines: Iterable[str],
+        *,
+        database_source: str,
+) -> dict[str, list[QueryMatchConfidence]]:
+    """Parse BLAST outfmt 6 lines into query_id -> hits (sorted by bitscore)."""
+    out: dict[str, list[QueryMatchConfidence]] = {}
+    for line in lines:
+        hit = parse_blast_outfmt6_line(line, database_source=database_source)
+        if hit is None or hit.query_id is None:
+            continue
+        out.setdefault(hit.query_id, []).append(hit)
+    for rid in out:
+        out[rid].sort(key=lambda h: (-_bitscore_of(h), -(h.sequence_identity or 0.0)))
+    return out
+
+
+def _pass_significance(hit: QueryMatchConfidence, cfg: HitFilterConfig) -> bool:
+    if cfg.max_evalue is not None and hit.evalue is not None and hit.evalue > cfg.max_evalue:
+        return False
+    if hit.sequence_identity is not None and hit.sequence_identity < cfg.min_identity:
+        return False
+    if _bitscore_of(hit) < cfg.min_bitscore:
+        return False
+    if hit.mapq is not None and cfg.min_mapq > 0 and hit.mapq < cfg.min_mapq:
+        return False
+    return True
+
+
+def filter_significant_hits(
+        hits: Sequence[QueryMatchConfidence],
+        config: HitFilterConfig | None = None,
+) -> list[QueryMatchConfidence]:
+    """Return hits that pass bitscore / optional identity / E-value thresholds."""
+    cfg = config or HitFilterConfig()
+    return [h for h in hits if _pass_significance(h, cfg)]
+
+
+def _top_n_references(cfg: HitFilterConfig) -> int:
+    return cfg.top_n_references if cfg.top_n_references > 0 else cfg.top_n
+
+
+def rank_sample_references(
+        hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
+        *,
+        top_n: int = 5,
+) -> tuple[SampleReferenceRank, ...]:
+    """
+    Rank reference accessions by how many queries they cover.
+
+    Primary key: number of distinct query reads with ≥1 hit.
+    Tiebreak: sum of per-read best bitscores to that accession.
+    """
+    if top_n <= 0:
+        return ()
+
+    reads_by_acc: dict[str, set[str]] = defaultdict(set)
+    best_bits_by_acc_read: dict[tuple[str, str], float] = {}
+    for query_id, hits in hits_by_query.items():
+        for hit in hits:
+            acc = hit.accession_id
+            reads_by_acc[acc].add(query_id)
+            key = (acc, query_id)
+            bits = _bitscore_of(hit)
+            prev = best_bits_by_acc_read.get(key)
+            if prev is None or bits > prev:
+                best_bits_by_acc_read[key] = bits
+
+    ranks: list[SampleReferenceRank] = []
+    for acc, read_ids in reads_by_acc.items():
+        sum_bits = sum(best_bits_by_acc_read[(acc, rid)] for rid in read_ids)
+        ranks.append(
+            SampleReferenceRank(
+                accession_id=acc,
+                n_reads=len(read_ids),
+                sum_bitscore=sum_bits,
+            )
+        )
+    ranks.sort(key=lambda r: (-r.n_reads, -r.sum_bitscore, r.accession_id))
+    return tuple(ranks[:top_n])
+
+
+def make_primary_summary(
+        selected_hits: Sequence[QueryMatchConfidence],
+) -> QueryMatchConfidence | None:
+    """Build a simple primary summary from the best-bitscore retained hit."""
+    if not selected_hits:
+        return None
+    primary = max(
+        selected_hits,
+        key=lambda h: (_bitscore_of(h), h.sequence_identity or 0.0),
+    )
+    qlen = 0
+    for hit in selected_hits:
+        meta_len = (hit.functional_metadata or {}).get("query_length")
+        if isinstance(meta_len, int) and meta_len > qlen:
+            qlen = meta_len
+        if hit.query_end is not None:
+            qlen = max(qlen, hit.query_end)
+    covered_bp = covered_query_bases(selected_hits, qlen) if qlen else 0
+    coverage = min(1.0, covered_bp / qlen) if qlen else 0.0
+    return QueryMatchConfidence(
+        accession_id=primary.accession_id,
+        database_source=primary.database_source,
+        match_score=primary.match_score,
+        sequence_identity=primary.sequence_identity,
+        query_id=primary.query_id,
+        evalue=primary.evalue,
+        bitscore=primary.bitscore,
+        alignment_length=primary.alignment_length,
+        query_start=primary.query_start,
+        query_end=primary.query_end,
+        mapq=primary.mapq,
+        target_start=primary.target_start,
+        target_end=primary.target_end,
+        target_length=primary.target_length,
+        functional_metadata=dict(primary.functional_metadata),
+        confidence=1.0,
+        query_coverage=coverage,
+        covered_bp=covered_bp,
+        query_length_bp=qlen,
+        mean_identity=primary.sequence_identity or 0.0,
+        uniqueness=1.0,
+        meets_mapping=True,
+        n_accessions=len({h.accession_id for h in selected_hits}),
+        n_hits=len(selected_hits),
+        features={"bitscore": _bitscore_of(primary), "coverage": coverage},
+    )
+
+
+def _hit_sort_key(hit: QueryMatchConfidence) -> tuple[float, float, float]:
+    return (
+        -hit.match_score,
+        -(hit.mapq or 0),
+        -(hit.sequence_identity or 0.0),
+    )
+
+
+def select_best_hits(
+        hits: Sequence[QueryMatchConfidence],
+        config: HitFilterConfig | None = None,
+        *,
+        query_length_bp: int | None = None,
+) -> list[QueryMatchConfidence]:
+    """
+    Filter and rank hits for a single query sequence.
+
+    When ``tile_along_query`` is True (default), greedily retains hits that
+    cover newly uncovered query bases so mosaic queries are represented.
+    """
+    cfg = config or HitFilterConfig()
+    if cfg.top_n <= 0:
+        return []
+
+    kept = filter_significant_hits(hits, cfg)
+    if not kept:
+        return []
+
+    if cfg.tile_along_query:
+        return select_tiling_hits(
+            kept,
+            top_n=cfg.top_n,
+            min_cover_gain_bp=cfg.min_cover_gain_bp,
+            query_length_bp=query_length_bp,
+        )
+
+    kept.sort(key=_hit_sort_key)
+    return kept[: cfg.top_n]
+
+
+def select_tiling_hits(
+        hits: Sequence[QueryMatchConfidence],
+        *,
+        top_n: int,
+        min_cover_gain_bp: int = 15,
+        query_length_bp: int | None = None,
+) -> list[QueryMatchConfidence]:
+    """Greedy set-cover style selection along the query axis."""
+    if top_n <= 0 or not hits:
+        return []
+
+    coordinated = [
+        h for h in hits if h.query_start is not None and h.query_end is not None
+    ]
+    if not coordinated:
+        ranked = sorted(hits, key=_hit_sort_key)
+        return ranked[:top_n]
+    hits = coordinated
+
+    qlen = query_length_bp
+    if qlen is None or qlen <= 0:
+        qlen = max(h.query_end or 0 for h in hits)
+
+    covered = [False] * qlen
+    remaining = list(hits)
+    selected: list[QueryMatchConfidence] = []
+
+    while remaining and len(selected) < top_n:
+        best_idx = -1
+        best_key: tuple[float, float, float] | None = None
+
+        for i, hit in enumerate(remaining):
+            start = max(0, hit.query_start or 0)
+            end = min(qlen, hit.query_end or 0)
+            if end <= start:
+                continue
+            gain = sum(1 for pos in range(start, end) if not covered[pos])
+            if selected and gain < min_cover_gain_bp:
+                continue
+            if not selected and gain <= 0:
+                continue
+            score = gain * max(hit.match_score, 1e-9)
+            key = (score, hit.match_score, float(hit.mapq or 0))
+            if best_key is None or key > best_key:
+                best_key = key
+                best_idx = i
+
+        if best_idx < 0:
+            break
+
+        chosen = remaining.pop(best_idx)
+        selected.append(chosen)
+        start = max(0, chosen.query_start or 0)
+        end = min(qlen, chosen.query_end or 0)
+        for pos in range(start, end):
+            covered[pos] = True
+
+    selected.sort(
+        key=lambda h: (h.query_start or 0, h.query_end or 0, -h.match_score)
+    )
+    return selected
+
+
+def select_best_hits_by_query(
+        hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
+        config: HitFilterConfig | None = None,
+        *,
+        query_lengths: Mapping[str, int] | None = None,
+) -> dict[str, list[QueryMatchConfidence]]:
+    """Apply :func:`select_best_hits` independently to each query's hit list."""
+    lengths = query_lengths or {}
+    return {
+        query_id: select_best_hits(
+            hits, config, query_length_bp=lengths.get(query_id)
+        )
+        for query_id, hits in hits_by_query.items()
+    }
+
+
+def _interval_overlap_bp(
+        a_start: int, a_end: int, b_start: int, b_end: int
+) -> int:
+    return max(0, min(a_end, b_end) - max(a_start, b_start))
+
+
+def competing_subject_counts(
+        selected: Sequence[QueryMatchConfidence],
+        candidates: Sequence[QueryMatchConfidence],
+        *,
+        min_overlap_bp: int = 1,
+) -> list[int]:
+    """Count competing accessions overlapping each selected hit (PlasmidHawk ``n_f``)."""
+    counts: list[int] = []
+    for hit in selected:
+        hs, he = hit.query_start, hit.query_end
+        if hs is None or he is None:
+            counts.append(1)
+            continue
+        subjects: set[str] = {hit.accession_id}
+        for other in candidates:
+            os_, oe = other.query_start, other.query_end
+            if os_ is None or oe is None:
+                continue
+            if _interval_overlap_bp(hs, he, os_, oe) >= min_overlap_bp:
+                subjects.add(other.accession_id)
+        counts.append(max(1, len(subjects)))
+    return counts
+
+
+def covered_query_bases(
+        hits: Sequence[QueryMatchConfidence],
+        query_length_bp: int,
+) -> int:
+    """Union length of query intervals covered by ``hits``."""
+    if query_length_bp <= 0 or not hits:
+        return 0
+    covered = [False] * query_length_bp
+    for hit in hits:
+        if hit.query_start is None or hit.query_end is None:
+            continue
+        start = max(0, hit.query_start)
+        end = min(query_length_bp, hit.query_end)
+        for pos in range(start, end):
+            covered[pos] = True
+    return sum(covered)
+
+
+def compute_match_confidence(
+        selected_hits: Sequence[QueryMatchConfidence],
+        *,
+        candidates: Sequence[QueryMatchConfidence] | None = None,
+        query_length_bp: int | None = None,
+        weights: ConfidenceModelWeights | None = None,
+) -> QueryMatchConfidence | None:
+    """Primary summary for retained hits (bitscore-best alignment)."""
+    del candidates, query_length_bp, weights  # unused; kept for call-site compat
+    return make_primary_summary(selected_hits)
+
+
+def build_query_matches(
+        hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
+        config: HitFilterConfig | None = None,
+        *,
+        query_lengths: Mapping[str, int] | None = None,
+        confidence_weights: ConfidenceModelWeights | None = None,
+) -> SampleReferenceSearchResult:
+    """
+    Bitscore-filter hits, pick sample top-N references, attach per-query hits.
+
+    Ranking: references covering the most distinct reads win; bitscore sum
+    breaks ties. Only hits to those top references are retained per read.
+    """
+    del confidence_weights  # unused by BLAST path
+    cfg = config or HitFilterConfig()
+    lengths = query_lengths or {}
+
+    filtered: dict[str, list[QueryMatchConfidence]] = {}
+    for query_id, hits in hits_by_query.items():
+        kept = filter_significant_hits(hits, cfg)
+        filtered[query_id] = kept
+
+    top_refs = rank_sample_references(
+        filtered, top_n=_top_n_references(cfg)
+    )
+    keep_acc = {r.accession_id for r in top_refs}
+
+    out: dict[str, QueryReferenceMatch] = {}
+    for query_id, hits in filtered.items():
+        selected = [h for h in hits if h.accession_id in keep_acc]
+        selected.sort(key=lambda h: (-_bitscore_of(h), -(h.sequence_identity or 0.0)))
+        # Annotate query length when known (for coverage on the summary).
+        qlen = lengths.get(query_id)
+        if qlen and selected:
+            selected = [
+                replace(
+                    h,
+                    functional_metadata={
+                        **dict(h.functional_metadata),
+                        "query_length": qlen,
+                    },
+                )
+                for h in selected
+            ]
+        out[query_id] = QueryReferenceMatch(
+            hits=tuple(selected),
+            summary=make_primary_summary(selected),
+        )
+    return SampleReferenceSearchResult(matches=out, top_references=top_refs)
+
+
+def _seq_format(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".fq", ".fastq"}:
+        return "fastq"
+    return "fasta"
+
+
+def read_query_lengths(fasta_path: str | Path) -> dict[str, int]:
+    """Map sequence ID -> length from a FASTA/FASTQ file."""
+    path = Path(fasta_path)
+    return {
+        record.id: len(record.seq)
+        for record in SeqIO.parse(str(path), _seq_format(path))
+    }
+
+
+def write_engineered_query_fasta(
+        query_ids: set[str],
+        source_reads: str | Path,
+        *,
+        output_path: str | Path | None = None,
+) -> Path | None:
+    """
+    Write a temporary FASTA of engineered read IDs for minimap2.
+
+    Returns ``None`` when ``query_ids`` is empty.
+    """
+    if not query_ids:
+        return None
+
+    source = Path(source_reads)
+    fmt = _seq_format(source)
+    wanted = set(query_ids)
+    records = []
+    for record in SeqIO.parse(str(source), fmt):
+        if record.id in wanted:
+            records.append(record)
+            wanted.discard(record.id)
+            if not wanted:
+                break
+
+    if not records:
+        logger.warning(
+            "No engineered read IDs found in %s (%d requested)",
+            source,
+            len(query_ids),
+        )
+        return None
+
+    if output_path is None:
+        fd, name = tempfile.mkstemp(prefix="plasmidScreen_eng_", suffix=".fasta")
+        os.close(fd)
+        out = Path(name)
+    else:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+
+    SeqIO.write(records, str(out), "fasta")
+    logger.info(
+        "Wrote %d engineered quer(ies) for minimap2 to %s",
+        len(records),
+        out,
+    )
+    return out
+
+
+class ReferenceSearchEngine(ABC):
+    """Abstract interface for batch reference-database lookup."""
+
+    @abstractmethod
+    def search_batch(
+            self,
+            query_fasta: str | Path,
+            *,
+            query_ids: Sequence[str] | None = None,
+    ) -> SampleReferenceSearchResult:
+        """Query the reference database for sequences in ``query_fasta``."""
+
+
+class BlastnReferenceSearchEngine(ReferenceSearchEngine):
+    """
+    Nucleotide search via local ``blastn``.
+
+    Aligns engineered query reads to a FASTA subject or BLAST DB, keeps hits
+    above ``min_bitscore``, then retains only the sample's top-N references
+    (by # reads covered, bitscore sum as tiebreak).
+    """
+
+    def __init__(self, config: ReferenceSearchConfig) -> None:
+        self.config = config
+        self.database_source = (
+            config.database_source
+            or f"blastn:{Path(config.reference_db).name}"
+        )
+
+    def search_batch(
+            self,
+            query_fasta: str | Path,
+            *,
+            query_ids: Sequence[str] | None = None,
+    ) -> SampleReferenceSearchResult:
+        t0 = time.perf_counter()
+        lengths = read_query_lengths(query_fasta)
+        lines = self._resolve_alignment_lines(query_fasta)
+        result = self._matches_from_lines(lines, query_lengths=lengths)
+        matches = result.matches
+
+        if query_ids is not None:
+            ordered = {
+                qid: matches.get(qid, QueryReferenceMatch(hits=()))
+                for qid in query_ids
+            }
+        else:
+            ordered = matches
+
+        elapsed = time.perf_counter() - t0
+        n_with_hits = sum(1 for m in ordered.values() if m.hits)
+        n_hits = sum(len(m.hits) for m in ordered.values())
+        logger.info(
+            "blastn reference search finished in %.3fs: %d queries, "
+            "%d with ≥1 retained hit, %d total hits, top_refs=%s "
+            "(database=%s, min_bitscore=%.1f, top_n=%d)",
+            elapsed,
+            len(ordered),
+            n_with_hits,
+            n_hits,
+            [r.accession_id for r in result.top_references],
+            self.database_source,
+            self.config.filters.min_bitscore,
+            _top_n_references(self.config.filters),
+        )
+        return SampleReferenceSearchResult(
+            matches=ordered, top_references=result.top_references
+        )
+
+    def search_from_blast_lines(
+            self,
+            lines: Iterable[str],
+            *,
+            query_ids: Sequence[str] | None = None,
+            query_lengths: Mapping[str, int] | None = None,
+    ) -> SampleReferenceSearchResult:
+        """Parse/filter precomputed BLAST outfmt 6 lines (no subprocess)."""
+        result = self._matches_from_lines(lines, query_lengths=query_lengths)
+        if query_ids is None:
+            return result
+        ordered = {
+            qid: result.matches.get(qid, QueryReferenceMatch(hits=()))
+            for qid in query_ids
+        }
+        return SampleReferenceSearchResult(
+            matches=ordered, top_references=result.top_references
+        )
+
+    def _resolve_alignment_lines(self, query_fasta: str | Path) -> list[str]:
+        cfg = self.config
+        if not cfg.run_blast:
+            if cfg.output_path is None:
+                raise ValueError(
+                    "output_path is required when run_blast=False "
+                    "(precomputed blastn outfmt 6 for reference search)."
+                )
+            path = Path(cfg.output_path)
+            if not path.is_file():
+                raise FileNotFoundError(f"blastn output not found: {path}")
+            logger.info("Loading reference-search blastn output from %s", path)
+            return path.read_text(encoding="utf-8").splitlines()
+
+        return run_blastn_alignment(
+            Path(query_fasta),
+            Path(cfg.reference_db),
+            threads=cfg.threads,
+            blastn_binary=cfg.blastn_binary,
+            blast_task=cfg.blast_task,
+            max_evalue=cfg.filters.max_evalue,
+            output_path=cfg.output_path,
+        )
+
+    def _matches_from_lines(
+            self,
+            lines: Iterable[str],
+            *,
+            query_lengths: Mapping[str, int] | None = None,
+    ) -> SampleReferenceSearchResult:
+        parsed = parse_blast_outfmt6(lines, database_source=self.database_source)
+        return build_query_matches(
+            parsed,
+            self.config.filters,
+            query_lengths=query_lengths,
+        )
+
+
+class MinimapReferenceSearchEngine(ReferenceSearchEngine):
+    """
+    Legacy nucleotide alignment search via local minimap2.
+
+    Prefer :class:`BlastnReferenceSearchEngine` for new workflows.
+    """
+
+    def __init__(self, config: ReferenceSearchConfig) -> None:
+        self.config = config
+        self.database_source = (
+                config.database_source
+                or f"minimap2:{Path(config.reference_db).name}"
+        )
+
+    def search_batch(
+            self,
+            query_fasta: str | Path,
+            *,
+            query_ids: Sequence[str] | None = None,
+    ) -> SampleReferenceSearchResult:
+        t0 = time.perf_counter()
+        lengths = read_query_lengths(query_fasta)
+        lines = self._resolve_alignment_lines(query_fasta)
+        result = self._matches_from_lines(lines, query_lengths=lengths)
+        matches = result.matches
+
+        if query_ids is not None:
+            ordered = {
+                qid: matches.get(qid, QueryReferenceMatch(hits=()))
+                for qid in query_ids
+            }
+        else:
+            ordered = matches
+
+        elapsed = time.perf_counter() - t0
+        n_with_hits = sum(1 for m in ordered.values() if m.hits)
+        n_hits = sum(len(m.hits) for m in ordered.values())
+        logger.info(
+            "minimap2 reference search finished in %.3fs: %d queries, "
+            "%d with ≥1 retained hit, %d total hits, top_refs=%s (database=%s)",
+            elapsed,
+            len(ordered),
+            n_with_hits,
+            n_hits,
+            [r.accession_id for r in result.top_references],
+            self.database_source,
+        )
+        return SampleReferenceSearchResult(
+            matches=ordered, top_references=result.top_references
+        )
+
+    def search_from_paf_lines(
+            self,
+            lines: Iterable[str],
+            *,
+            query_ids: Sequence[str] | None = None,
+            query_lengths: Mapping[str, int] | None = None,
+    ) -> SampleReferenceSearchResult:
+        """Parse/filter precomputed minimap2 PAF lines (no subprocess)."""
+        result = self._matches_from_lines(lines, query_lengths=query_lengths)
+        if query_ids is None:
+            return result
+        ordered = {
+            qid: result.matches.get(qid, QueryReferenceMatch(hits=()))
+            for qid in query_ids
+        }
+        return SampleReferenceSearchResult(
+            matches=ordered, top_references=result.top_references
+        )
+
+    def _resolve_alignment_lines(self, query_fasta: str | Path) -> list[str]:
+        cfg = self.config
+        if not cfg.run_minimap:
+            if cfg.output_path is None:
+                raise ValueError(
+                    "output_path is required when run_minimap=False "
+                    "(precomputed minimap2 PAF for reference search)."
+                )
+            path = Path(cfg.output_path)
+            if not path.is_file():
+                raise FileNotFoundError(f"minimap2 output not found: {path}")
+            logger.info("Loading reference-search minimap2 PAF from %s", path)
+            return read_minimap_output(path)
+
+        return run_minimap2_alignment(
+            Path(query_fasta),
+            Path(cfg.reference_db),
+            threads=cfg.threads,
+            data_type=cfg.data_type,
+            secondary_n=max(cfg.filters.secondary_n, cfg.filters.top_n, 1),
+            output_path=cfg.output_path,
+        )
+
+    def _matches_from_lines(
+            self,
+            lines: Iterable[str],
+            *,
+            query_lengths: Mapping[str, int] | None = None,
+    ) -> SampleReferenceSearchResult:
+        parsed = parse_minimap_paf(lines, database_source=self.database_source)
+        return build_query_matches(
+            parsed,
+            self.config.filters,
+            query_lengths=query_lengths,
+            confidence_weights=self.config.confidence_weights,
+        )
+
+
+# Preferred engine alias.
+DiamondReferenceSearchEngine = BlastnReferenceSearchEngine
+
+
+def _reference_is_fasta(path: Path) -> bool:
+    return path.suffix.lower() in _FASTA_SUFFIXES
+
+
+def run_blastn_alignment(
+        reads_path: Path,
+        reference_db: Path,
+        *,
+        threads: int = 4,
+        blastn_binary: str = "blastn",
+        blast_task: str = "blastn",
+        max_evalue: float | None = None,
+        output_path: str | Path | None = None,
+) -> list[str]:
+    """
+    Run ``blastn`` and return outfmt 6 tabular lines.
+
+    ``reference_db`` may be a nucleotide FASTA (``-subject``) or a BLAST DB
+    prefix (``-db``).
+    """
+    reads_path = Path(reads_path)
+    reference_db = Path(reference_db)
+    cmd: list[str] = [
+        blastn_binary,
+        "-task",
+        blast_task,
+        "-query",
+        str(reads_path),
+        "-outfmt",
+        "6",
+        "-num_threads",
+        str(threads),
+        "-dust",
+        "no",
+    ]
+    if max_evalue is not None:
+        cmd.extend(["-evalue", str(max_evalue)])
+    if _reference_is_fasta(reference_db):
+        cmd.extend(["-subject", str(reference_db)])
+    else:
+        cmd.extend(["-db", str(reference_db)])
+
+    logger.info("Running blastn reference search: %s", " ".join(cmd))
+    t0 = time.perf_counter()
+    if output_path is not None:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        cmd.extend(["-out", str(out)])
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        elapsed = time.perf_counter() - t0
+        logger.info("blastn wrote %s in %.3fs", out, elapsed)
+        return out.read_text(encoding="utf-8").splitlines()
+
+    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    elapsed = time.perf_counter() - t0
+    lines = proc.stdout.splitlines()
+    logger.info("blastn returned %d hit lines in %.3fs", len(lines), elapsed)
+    return lines
+
+
+def run_minimap2_alignment(
+        reads_path: Path,
+        reference_db: Path,
+        *,
+        data_type: SupportDataTypes = SupportDataTypes.LONG_READ_ONT,
+        threads: int = 4,
+        secondary_n: int = 5,
+        output_path: str | Path | None = None,
+) -> list[str]:
+    """
+    Run minimap2 and return PAF alignment lines.
+
+    ``reference_db`` may be a nucleotide FASTA or a prebuilt ``.mmi`` index.
+    """
+    reads_path = Path(reads_path)
+    reference_db = Path(reference_db)
+    preset = data_type.value
+    cmd: list[str] = [
+        "minimap2",
+        "-x",
+        preset,
+        "--secondary=yes",
+        "-N",
+        str(secondary_n),
+        "-t",
+        str(threads),
+        str(reference_db),
+        str(reads_path),
+    ]
+
+    logger.info("Running minimap2 reference search: %s", " ".join(cmd))
+    t0 = time.perf_counter()
+    if output_path is not None:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        cmd.extend(["-o", str(out)])
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        elapsed = time.perf_counter() - t0
+        logger.info("minimap2 wrote %s in %.3fs", out, elapsed)
+        return read_minimap_output(out)
+
+    proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    elapsed = time.perf_counter() - t0
+    lines = proc.stdout.splitlines()
+    logger.info(
+        "minimap2 returned %d PAF lines in %.3fs",
+        len(lines),
+        elapsed,
+    )
+    return lines
+
+
+def enrich_screen_result(
+        screen_result: ScreenResult,
+        matches_by_read: Mapping[str, QueryReferenceMatch | Sequence[QueryMatchConfidence]]
+        | SampleReferenceSearchResult,
+        *,
+        database_source: str | None = None,
+        searched: bool = True,
+        annotate_only_ids: set[str] | None = None,
+        top_references: tuple[SampleReferenceRank, ...] | None = None,
+) -> ScreenResult:
+    """
+    Attach reference-match hits onto a finished :class:`ScreenResult`.
+
+    When ``annotate_only_ids`` is set (engineered read IDs), only those reads
+    receive match notes / summaries; other reads are left unchanged.
+
+    Mapping is informational only: engineered / natural overall labels are never
+    rewritten based on database match success or failure.
+    """
+    ranks = top_references
+    if isinstance(matches_by_read, SampleReferenceSearchResult):
+        ranks = matches_by_read.top_references if ranks is None else ranks
+        matches_by_read = matches_by_read.matches
+
+    annotate = annotate_only_ids
+    new_per_read = []
+    for detail in screen_result.per_read:
+        if annotate is not None and detail.read_id not in annotate:
+            new_per_read.append(detail)
+            continue
+
+        raw = matches_by_read.get(detail.read_id)
+        if isinstance(raw, QueryReferenceMatch):
+            hits = tuple(raw.hits)
+            summary = raw.summary
+            confidence = raw.confidence
+            coverage = raw.query_coverage
+        elif raw is None:
+            hits = ()
+            summary = None
+            confidence = None
+            coverage = None
+        else:
+            hits = tuple(raw)
+            summary = compute_match_confidence(hits)
+            confidence = None if summary is None else summary.confidence
+            coverage = None if summary is None else summary.query_coverage
+
+        has_match = bool(hits) and summary is not None
+        note: str | None = None
+        if searched and not has_match:
+            note = NO_DATABASE_MATCH_NOTE
+
+        new_per_read.append(
+            replace(
+                detail,
+                database_match_note=note,
+                database_match_confidence=confidence if has_match else None,
+                database_query_coverage=coverage if has_match else None,
+                database_match_summary=summary if has_match else None,
+                database_match_hits=hits if has_match else (),
+            )
+        )
+
+    source = database_source or screen_result.reference_database_source
+    if source is None:
+        for detail in new_per_read:
+            if detail.database_match_summary is not None:
+                source = detail.database_match_summary.database_source
+                break
+
+    if ranks is None:
+        hits_by_query = {
+            d.read_id: d.database_match_hits
+            for d in new_per_read
+            if d.database_match_hits
+        }
+        ranks = rank_sample_references(hits_by_query, top_n=5)
+
+    # Mapping pileup summaries are viz-only; see visualize_engineered_mappings.
+    return replace(
+        screen_result,
+        per_read=new_per_read,
+        reference_database_source=source,
+        top_engineered_references=ranks,
+        engineered_mapping_hits=(),
+    )
+
+
+def enrich_screen_result_with_engine(
+        screen_result: ScreenResult,
+        engine: ReferenceSearchEngine,
+        query_fasta: str | Path,
+) -> ScreenResult | None:
+    """
+    Align engineered reads with blastn (or legacy engine) and join hits onto
+    ``screen_result``.
+
+    Natural-only reads are left without a database-match annotation.
+    """
+    engineered_ids = set(screen_result.engineered_read_ids)
+    if not engineered_ids:
+        logger.info("No engineered reads; skipping reference search.")
+        return None
+
+    subset = write_engineered_query_fasta(engineered_ids, query_fasta)
+    if subset is None:
+        logger.warning(
+            "Could not fetch engineered sequences from %s; skipping reference search.",
+            query_fasta,
+        )
+        return None
+
+    try:
+        search = engine.search_batch(
+            subset, query_ids=sorted(engineered_ids)
+        )
+
+        source = getattr(engine, "database_source", None)
+        return enrich_screen_result(
+            screen_result,
+            search,
+            database_source=source,
+            searched=True,
+            annotate_only_ids=engineered_ids,
+        )
+    finally:
+        try:
+            subset.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not unlink temporary query FASTA %s", subset)

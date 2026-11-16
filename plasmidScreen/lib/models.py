@@ -8,7 +8,9 @@ from enum import Enum
 
 MEMORY_CONFIG = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
-BACKGROUND_RATE = 0.0003
+BACKGROUND_RATE = 0.001
+# Reject window-threshold Synthetic calls when the binomial p-value exceeds this.
+PVALUE_ALPHA = 0.05
 
 # Provenance tag when a queried sequence has no significant reference hits.
 NO_DATABASE_MATCH_NOTE = "No database match found"
@@ -21,7 +23,7 @@ class MEMORY_MODE(Enum):
 
 
 class SupportDataTypes(Enum):
-    """minimap2 ``-x`` presets for reference search on engineered reads."""
+    """Legacy minimap2 ``-x`` presets (reference search now defaults to blastn)."""
 
     LONG_READ_ONT = "map-ont"
     LONG_READ_PB = "map-pb"
@@ -60,6 +62,7 @@ class QueryMatchConfidence:
     mean_identity: float = 0.0
     uniqueness: float = 0.0
     plasmidhawk_score: float = 0.0
+    meets_mapping: bool = False
     n_accessions: int = 1
     n_hits: int = 1
     features: dict[str, float] = field(default_factory=dict)
@@ -75,6 +78,60 @@ class QueryMatchConfidence:
         if self.target_start is None or self.target_end is None:
             return 0
         return max(0, self.target_end - self.target_start)
+
+
+@dataclass(frozen=True)
+class MappedQueryInterval:
+    """One query alignment interval on a reference plasmid (pileup row)."""
+
+    query_id: str
+    target_start: int  # 0-based inclusive
+    target_end: int  # 0-based exclusive
+    sequence_identity: Optional[float] = None
+    match_score: Optional[float] = None
+    overlapping_features: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReferenceFeatureInterval:
+    """One GenBank feature interval shown on the plasmid map."""
+
+    label: str
+    feature_type: str
+    start: int  # 0-based inclusive
+    end: int  # 0-based exclusive
+    strand: int = 0
+
+
+@dataclass(frozen=True)
+class SampleReferenceRank:
+    """One reference sequence ranked by how many engineered reads it covers."""
+
+    accession_id: str
+    n_reads: int
+    sum_bitscore: float
+
+
+@dataclass(frozen=True)
+class EngineeredMappingHit:
+    """
+    Per-plasmid mapping summary for engineered reads (mirrors the pileup figure).
+
+    Built from retained BLAST hits (and optional GenBank features). Use
+    :attr:`alignments` for where each query maps; coverage fields summarize
+    the aggregated depth track used when many reads hit the same plasmid.
+    """
+
+    accession_id: str
+    target_length: int
+    n_queries: int
+    n_alignments: int
+    query_ids: tuple[str, ...]
+    alignments: tuple[MappedQueryInterval, ...]
+    features: tuple[ReferenceFeatureInterval, ...] = ()
+    covered_bp: int = 0
+    mean_coverage: float = 0.0
+    max_coverage: int = 0
 
 
 @dataclass
@@ -157,18 +214,18 @@ def compute_engineered_overall(
         *,
         engineered_by_kmer_scan: bool,
         engineered_by_codon_cai: bool | None,
-        engineered_by_perseus: bool | None = None,
+        # engineered_by_perseus: bool | None = None,  # Perseus OR disabled
 ) -> bool:
     """
     Combined engineered call for a read using thresholds active in ``run_screen``.
 
-    Engineered if the k-mer scan flagged Synthetic, Perseus assigned taxid 32630
-    on a Natural read, or codon CAI flagging is enabled and CAI is above threshold.
+    Engineered if the k-mer scan flagged Synthetic, or codon CAI flagging is
+    enabled and CAI is above threshold. Perseus OR contribution is disabled.
     """
     if engineered_by_kmer_scan:
         return True
-    if engineered_by_perseus is True:
-        return True
+    # if engineered_by_perseus is True:
+    #     return True
     return engineered_by_codon_cai is True
 
 
@@ -191,6 +248,11 @@ class ScreenResult:
     codon_usage_report_path: Optional[Path] = None
     diamond_output_path: Optional[Path] = None
     perseus_output_path: Optional[Path] = None
+    reference_database_source: Optional[str] = None
+    # Sample-wide top reference sequences (BLAST bitscore filter + read coverage rank).
+    top_engineered_references: tuple[SampleReferenceRank, ...] = ()
+    # Filled only when visualization mode runs (:func:`visualize_engineered_mappings`).
+    engineered_mapping_hits: tuple[EngineeredMappingHit, ...] = ()
 
     @property
     def overall_engineered_read_count(self) -> int:
@@ -237,6 +299,31 @@ class ScreenResult:
     def per_read_natural(self) -> list["ReadFlagDetail"]:
         return [r for r in self.per_read if r.overall_label == "Natural"]
 
+    @property
+    def database_match_summaries(self) -> list[QueryMatchConfidence]:
+        """Primary per-read database-match summaries (reads with a retained hit)."""
+        return [
+            r.database_match_summary
+            for r in self.per_read
+            if r.database_match_summary is not None
+        ]
+
+
+@dataclass(frozen=True)
+class VisualizationReport:
+    """
+    Optional viz-mode artifact (pileups + mapping summaries).
+
+    Produced by :func:`plasmidScreen.api.visualize_engineered_mappings`; not part of
+    the default ``run_screen`` / enrichment return payload.
+    """
+
+    output_dir: Path
+    pileup_paths: tuple[Path, ...] = ()
+    engineered_mapping_hits: tuple[EngineeredMappingHit, ...] = ()
+    top_engineered_references: tuple[SampleReferenceRank, ...] = ()
+    report_json_path: Optional[Path] = None
+
 
 @dataclass(frozen=True)
 class ReadFlagDetail:
@@ -268,8 +355,8 @@ class ReadFlagDetail:
         methods: list[str] = []
         if self.engineered_by_kmer_scan:
             methods.append("engineered_kmer_scan")
-        if self.engineered_by_perseus:
-            methods.append("perseus")
+        # if self.engineered_by_perseus:
+        #     methods.append("perseus")
         if self.engineered_by_codon_cai:
             methods.append("codon_cai")
         return methods

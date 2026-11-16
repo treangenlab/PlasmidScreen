@@ -12,12 +12,13 @@ from tqdm import tqdm
 
 from plasmidScreen.lib.funcs import call_synthetic_reads
 from plasmidScreen.lib.exceptions import InputError, KrakenError
-from plasmidScreen.lib.perseus import (
-    ENGINEERED_TAXID,
-    PERSEUS_BRIDGE_BUILD,
-    engineered_read_ids_from_perseus,
-    resolve_perseus_taxids,
-)
+# Perseus disabled for now — re-enable by uncommenting the import and pipeline blocks below.
+# from plasmidScreen.lib.perseus import (
+#     ENGINEERED_TAXID,
+#     PERSEUS_BRIDGE_BUILD,
+#     engineered_read_ids_from_perseus,
+#     resolve_perseus_taxids,
+# )
 try:
     from numba import jit
 except ModuleNotFoundError:  # pragma: no cover
@@ -36,6 +37,7 @@ from plasmidScreen.lib.models import (
     ScreenResult,
     compute_engineered_overall,
     BACKGROUND_RATE,
+    PVALUE_ALPHA,
 )
 from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
@@ -130,15 +132,17 @@ class Workflow:
             diamond_output_path: str | Path | None = None,
             debug_write_diamond_output: bool = False,
             run_diamond: bool = True,
-            run_perseus: bool = False,
-            perseus_db: str | Path | None = None,
-            perseus_output_path: str | Path | None = None,
-            debug_write_perseus_output: bool = False,
+            # Perseus disabled for now
+            # run_perseus: bool = False,
+            # perseus_db: str | Path | None = None,
+            # perseus_output_path: str | Path | None = None,
+            # debug_write_perseus_output: bool = False,
             quiet_mode: bool = False,
             mem_mode: int = 0,
             kmer_size: int = 35,
             minimizer_size: int = 31,
-            background_rate: float = BACKGROUND_RATE
+            background_rate: float = BACKGROUND_RATE,
+            pvalue_alpha: float = PVALUE_ALPHA,
     ) -> None:
         self.fasta_file = Path(fasta_file)
         self.seq_type = seq_type
@@ -172,16 +176,18 @@ class Workflow:
         self.debug_write_diamond_output = debug_write_diamond_output
         self.run_diamond_enabled = run_diamond
         self._diamond_output_saved = None
-        self.run_perseus_enabled = run_perseus
-        self.perseus_db = Path(perseus_db) if perseus_db else None
-        self.perseus_output_path = (
-            Path(perseus_output_path) if perseus_output_path else None
-        )
-        self.debug_write_perseus_output = debug_write_perseus_output
-        self._perseus_output_saved = None
+        # Perseus disabled for now
+        # self.run_perseus_enabled = run_perseus
+        # self.perseus_db = Path(perseus_db) if perseus_db else None
+        # self.perseus_output_path = (
+        #     Path(perseus_output_path) if perseus_output_path else None
+        # )
+        # self.debug_write_perseus_output = debug_write_perseus_output
+        # self._perseus_output_saved = None  # Perseus disabled; unused None stub
         self.quiet_mode = quiet_mode
         self.mem_mode = mem_mode
         self.background_rate: float = background_rate
+        self.pvalue_alpha: float = pvalue_alpha
 
     def _validate_inputs(self) -> None:
         if not self.fasta_file.is_file():
@@ -442,7 +448,7 @@ class Workflow:
             tot_kmers,
             self.background_rate,
             n_reads_total=len(entries),
-            alpha=0.05,
+            alpha=self.pvalue_alpha,
         )
         return result, p_values, kmer_max_by_read
 
@@ -511,33 +517,34 @@ class Workflow:
             ) from exc
         logging.info("Wrote engineered report to %s", self.report_output_path)
 
-    def run_perseus_on_natural(
-            self,
-            natural_read_ids: set[str],
-    ) -> dict[str, int]:
-        """
-        Run Perseus on Kraken lines for Natural reads; return ``{read_id: perseus_taxid}``.
-        """
-        self._ensure_kraken_in_memory()
-        taxids, saved = resolve_perseus_taxids(
-            kraken_lines=self._kraken_lines or [],
-            natural_read_ids=natural_read_ids,
-            perseus_db=self.perseus_db,
-            run_perseus_enabled=self.run_perseus_enabled,
-            perseus_output_path=self.perseus_output_path,
-            debug_write_perseus_output=self.debug_write_perseus_output,
-            extract_threads=self.max_threads,
-        )
-        self._perseus_output_saved = saved
-        if taxids:
-            n_eng = sum(1 for t in taxids.values() if t == ENGINEERED_TAXID)
-            logging.info(
-                "Perseus finished for %d Natural read(s); %d assigned taxid %d.",
-                len(taxids),
-                n_eng,
-                ENGINEERED_TAXID,
-            )
-        return taxids
+    # Perseus disabled for now — re-enable with the import and constructor fields above.
+    # def run_perseus_on_natural(
+    #         self,
+    #         natural_read_ids: set[str],
+    # ) -> dict[str, int]:
+    #     """
+    #     Run Perseus on Kraken lines for Natural reads; return ``{read_id: perseus_taxid}``.
+    #     """
+    #     self._ensure_kraken_in_memory()
+    #     taxids, saved = resolve_perseus_taxids(
+    #         kraken_lines=self._kraken_lines or [],
+    #         natural_read_ids=natural_read_ids,
+    #         perseus_db=self.perseus_db,
+    #         run_perseus_enabled=self.run_perseus_enabled,
+    #         perseus_output_path=self.perseus_output_path,
+    #         debug_write_perseus_output=self.debug_write_perseus_output,
+    #         extract_threads=self.max_threads,
+    #     )
+    #     self._perseus_output_saved = saved
+    #     if taxids:
+    #         n_eng = sum(1 for t in taxids.values() if t == ENGINEERED_TAXID)
+    #         logging.info(
+    #             "Perseus finished for %d Natural read(s); %d assigned taxid %d.",
+    #             len(taxids),
+    #             n_eng,
+    #             ENGINEERED_TAXID,
+    #         )
+    #     return taxids
 
     def run(self) -> ScreenResult:
         self._validate_inputs()
@@ -545,45 +552,56 @@ class Workflow:
             self.run_kraken()
         engineered_scan, p_values, kmer_max_by_read = self.scan_engineered_blocks_kraken()
 
-        perseus_taxids: dict[str, int] = {}
-        perseus_engineered: set[str] = set()
-        perseus_requested = self.run_perseus_enabled or self.perseus_output_path is not None
-        if perseus_requested:
-            if self.run_perseus_enabled and self.perseus_db is None:
-                raise ValueError("perseus_db is required when run_perseus=True.")
-            if not self.run_perseus_enabled and self.perseus_output_path is None:
-                raise ValueError(
-                    "perseus_output_path is required when run_perseus=False "
-                    "(precomputed Perseus TSV)."
-                )
-            if self.debug_write_perseus_output and self.perseus_output_path is None:
-                raise ValueError(
-                    "perseus_output_path is required when debug_write_perseus_output=True."
-                )
-            natural_for_perseus = engineered_scan.natural_read_ids
-            if natural_for_perseus:
-                logging.info(
-                    "Running Perseus on %d Natural read(s) after Kraken2 k-mer scan "
-                    "(bridge=%s).",
-                    len(natural_for_perseus),
-                    PERSEUS_BRIDGE_BUILD,
-                )
-                perseus_taxids = self.run_perseus_on_natural(natural_for_perseus)
-                perseus_engineered = engineered_read_ids_from_perseus(perseus_taxids)
-                if perseus_engineered:
-                    logging.info(
-                        "Perseus marked %d Natural read(s) engineered (taxid %d).",
-                        len(perseus_engineered),
-                        ENGINEERED_TAXID,
-                    )
+        # Perseus disabled for now
+        # perseus_taxids: dict[str, int] = {}
+        # perseus_engineered: set[str] = set()
+        # perseus_requested = self.run_perseus_enabled or self.perseus_output_path is not None
+        # if perseus_requested:
+        #     if self.run_perseus_enabled and self.perseus_db is None:
+        #         raise ValueError("perseus_db is required when run_perseus=True.")
+        #     if not self.run_perseus_enabled and self.perseus_output_path is None:
+        #         raise ValueError(
+        #             "perseus_output_path is required when run_perseus=False "
+        #             "(precomputed Perseus TSV)."
+        #         )
+        #     if self.debug_write_perseus_output and self.perseus_output_path is None:
+        #         raise ValueError(
+        #             "perseus_output_path is required when debug_write_perseus_output=True."
+        #         )
+        #     natural_for_perseus = engineered_scan.natural_read_ids
+        #     if natural_for_perseus:
+        #         logging.info(
+        #             "Running Perseus on %d Natural read(s) after Kraken2 k-mer scan "
+        #             "(bridge=%s).",
+        #             len(natural_for_perseus),
+        #             PERSEUS_BRIDGE_BUILD,
+        #         )
+        #         perseus_taxids = self.run_perseus_on_natural(natural_for_perseus)
+        #         perseus_engineered = engineered_read_ids_from_perseus(perseus_taxids)
+        #         if perseus_engineered:
+        #             logging.info(
+        #                 "Perseus marked %d Natural read(s) engineered (taxid %d).",
+        #                 len(perseus_engineered),
+        #                 ENGINEERED_TAXID,
+        #             )
 
-        # Codon CAI only on reads still Natural after k-mer scan and Perseus.
-        codon_natural_ids = engineered_scan.natural_read_ids - perseus_engineered
+        # Window Synthetic + significant p-value → k-mer engineered; else Natural for codon.
+        kmer_engineered_ids = {
+            lbl.read_id
+            for index, lbl in enumerate(engineered_scan.labels)
+            if lbl.label == "Synthetic"
+            and float(p_values[index]) <= self.pvalue_alpha
+        }
+        codon_natural_ids = {
+            lbl.read_id
+            for lbl in engineered_scan.labels
+            if lbl.read_id not in kmer_engineered_ids
+        }
 
         codon_path: Path | None = None
         codon_results = CodonAdaptationResult(labels=[])
         if self.run_codon_usage and codon_natural_ids:
-            if engineered_scan.any_synthetic or perseus_engineered:
+            if kmer_engineered_ids:
                 logging.info(
                     "Engineered reads detected; running codon usage only on remaining Natural reads."
                 )
@@ -613,25 +631,32 @@ class Workflow:
                 # CAI above threshold flags engineered (codon optimization signal).
                 engineered_by_codon = cai > self.codon_cai_engineered_threshold
 
-            engineered_by_kmer = lbl.label == "Synthetic"
-            perseus_taxid = perseus_taxids.get(lbl.read_id)
-            engineered_by_perseus: bool | None = None
-            if perseus_taxid is not None:
-                engineered_by_perseus = perseus_taxid == ENGINEERED_TAXID
-            elif perseus_requested:
-                # Perseus was requested but this read was not scored (e.g. k-mer Synthetic).
-                engineered_by_perseus = False if engineered_by_kmer else None
+            p_value = float(p_values[index])
+            # Window hit alone is not enough: insignificant p-value → Natural for k-mer.
+            engineered_by_kmer = (
+                lbl.label == "Synthetic" and p_value <= self.pvalue_alpha
+            )
+            # Perseus disabled for now
+            # perseus_taxid = perseus_taxids.get(lbl.read_id)
+            # engineered_by_perseus: bool | None = None
+            # if perseus_taxid is not None:
+            #     engineered_by_perseus = perseus_taxid == ENGINEERED_TAXID
+            # elif perseus_requested:
+            #     # Perseus was requested but this read was not scored (e.g. k-mer Synthetic).
+            #     engineered_by_perseus = False if engineered_by_kmer else None
+            # engineered_by_perseus = None
+            # perseus_taxid = None
 
             engineered_overall = compute_engineered_overall(
                 engineered_by_kmer_scan=engineered_by_kmer,
                 engineered_by_codon_cai=engineered_by_codon,
-                engineered_by_perseus=engineered_by_perseus,
+                # engineered_by_perseus=engineered_by_perseus,  # Perseus OR disabled
             )
             overall_label: Literal["Natural", "Synthetic"] = (
                 "Synthetic" if engineered_overall else "Natural"
             )
             kmer_label: Literal["Natural", "Synthetic"] = (
-                "Natural" if p_values[index] > 0.05 else lbl.label
+                "Synthetic" if engineered_by_kmer else "Natural"
             )
 
             per_read.append(
@@ -648,9 +673,9 @@ class Workflow:
                     cai_vs_host=cai,
                     engineered_by_codon_cai=engineered_by_codon,
                     codon_cai_threshold=self.codon_cai_engineered_threshold,
-                    engineered_by_perseus=engineered_by_perseus,
-                    perseus_taxid=perseus_taxid,
-                    p_value=float(p_values[index]),
+                    # engineered_by_perseus=engineered_by_perseus,  # Perseus disabled; field default None
+                    # perseus_taxid=perseus_taxid,
+                    p_value=p_value,
                 )
             )
 
@@ -664,7 +689,7 @@ class Workflow:
             engineered_report_path=self.report_output_path,
             codon_usage_report_path=codon_path,
             diamond_output_path=self._diamond_output_saved,
-            perseus_output_path=self._perseus_output_saved,
+            # perseus_output_path=self._perseus_output_saved,  # Perseus disabled; field default None
             engineered_kmer_threshold=self.threshold,
             engineered_kmer_window_size=self.window_size,
             codon_cai_engineered_threshold=self.codon_cai_engineered_threshold,

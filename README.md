@@ -17,10 +17,11 @@ threshold is identified as engineered.
 |------|------|-----------------------------------------------------------------------------------|
 | 1 | CSDB build | `codon_tables.json` + optional `taxonomy_parents.json`                            |
 | 2 | Kraken2 | Engineered k-mer labels (Natural / Synthetic)                                     |
-| 3 | Perseus (optional) | On Natural reads: `perseus_taxid` 32630 → engineered                              |
-| 4 | DIAMOND blastx | ORF intervals (`qstart`/`qend`) and host taxid (`staxids`)                        |
-| 5 | CAI | Codon adaptation vs host reference (remaining Natural reads only in full screen)  |
-| 6 | Combined call | `ScreenResult.per_read[].engineered_overall` / `overall_label`                    |
+| 3 | DIAMOND blastx | ORF intervals (`qstart`/`qend`) and host taxid (`staxids`)                        |
+| 4 | CAI | Codon adaptation vs host reference (remaining Natural reads only in full screen)  |
+| 5 | Combined call | `ScreenResult.per_read[].engineered_overall` / `overall_label`                    |
+| 6 | blastn map (optional) | Top engineered-read reference hits on a nucleotide DB (`--map-hits`)              |
+| 7 | Visualize (optional) | Pileup PNGs + mapping JSON (`--visualize` / `plasmidscreen visualize`)       |
 
 ### Overall engineered decision (`run_screen` / `ScreenResult`)
 
@@ -30,8 +31,7 @@ ran. If either are found to contain engineering, `ScreenResult` object will repo
 
 | Signal | Parameter | Counts toward overall engineered when |
 |--------|-----------|----------------------------------------|
-| K-mer scan | `--threshold`, `--window_size` | Engineered minimizers (taxid 32630) in a window ≥ threshold → k-mer **Synthetic** |
-| Perseus | `--run-perseus`, `--perseus-db` | Perseus assigns taxid **32630** on a k-mer-Natural read |
+| K-mer scan | `--threshold`, `--window_size`, `--bg` | Window ≥ threshold **and** binomial p-value ≤ 0.05 → k-mer engineered |
 | Codon CAI | `--codon-cai-threshold` (optional) | CAI &gt; threshold on a scored Natural read (requires codon step) |
 
 ### Library usage
@@ -39,7 +39,10 @@ ran. If either are found to contain engineering, `ScreenResult` object will repo
 ```python
 from plasmidScreen import (
     build_codon_database,
+    map_and_visualize_engineered,
+    map_engineered_reads,
     run_screen,
+    visualize_engineered_mappings,
 )
 
 # Step 1 — build reference JSON from Codon Statistics Database.
@@ -73,6 +76,18 @@ for r in screen_result.per_read:
         r.engineered_by_codon_cai,  # True/False/None vs CAI threshold
         r.cai_vs_host,              # float CAI score, or None
     )
+
+# Optional: BLAST engineered reads against a nucleotide reference, then pileups
+screen_result, viz = map_and_visualize_engineered(
+    screen_result,
+    query_fasta="reads.fa",
+    reference_db="/path/to/plasmids.fa",
+    viz_dir="viz_out",
+    top_n=5,
+)
+# Or stepwise: map_engineered_reads(...) then visualize_engineered_mappings(...)
+print(screen_result.top_engineered_references)
+print(viz.pileup_paths)
 ```
 
 ### CLI — build reference (network required)
@@ -100,8 +115,7 @@ pip install .
 ```
 
 Requires Python ≥3.10. Also need `kraken2` and (for codon CAI) `diamond` on `PATH`.
-Optional Perseus (`perseus` on `PATH`, plus `perseus setup <db>`) enables
-`--run-perseus --perseus-db <db>` to reclassify Natural reads via [Perseus](https://github.com/matnguyen/perseus).
+Optional map/visualize needs `blastn` on `PATH` (NCBI BLAST+).
 Kraken2 installation process can be found on their wiki: https://github.com/DerrickWood/kraken2/wiki/Manual.
 Similarly installing diamond can be found in their wiki: https://github.com/bbuchfink/diamond/wiki/2.-Installation,
 
@@ -155,20 +169,63 @@ plasmidscreen screen reads.fa report.txt /path/to/kraken/db \
 
 # Engineered k-mer scan only (no codon / DIAMOND; overall == k-mer labels)
 plasmidscreen screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage
+
+# Optional: BLAST map engineered reads + write pileup visualizations
+plasmidscreen screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage \
+  --visualize --reference-db /path/to/plasmids.fa --viz-dir viz_out \
+  --viz-top-n 5
+
+# Map only (no figures): attach top_engineered_references on ScreenResult
+plasmidscreen screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage \
+  --map-hits --reference-db /path/to/plasmids.fa
 ```
+
+### CLI — prefetch GenBank (networked, once)
+
+Pileup feature tracks read a **local GenBank cache** only. Prefill it from the
+same nucleotide reference FASTA you pass to `--reference-db` / `visualize`:
+
+```bash
+plasmidscreen prefetch-genbank /path/to/plasmids.fa
+# optional: --cache-dir /path/to/cache --ncbi-api-key YOUR_KEY
+```
+
+Default cache: `~/.local/share/PlasmidScreen/genbank_cache`. Visualization does
+not contact NCBI by default; missing accessions simply omit feature overlays.
+For a quick install without a bulk prefetch, pass `--fetch-genbank` on
+`screen --visualize` / `visualize` to download only the accessions needed for
+that run (optional `--ncbi-api-key`).
+
+### CLI — visualize (from a prior screen report)
+
+Re-run blastn enrichment and pileups without re-screening. Rebuilds a minimal
+`ScreenResult` from the engineered report TSV, then maps and visualizes.
+
+```bash
+plasmidscreen visualize reads.fa report.txt /path/to/plasmids.fa viz_out \
+  --top-n 5 --threads 8
+```
+
+Outputs under `--viz-dir` / `viz_out`:
+- `*.png` pileup figures for top references
+- `visualization_report.json` mapping summaries
+
+Library equivalents: `prefetch_genbank_from_fasta`, `map_engineered_reads`,
+`visualize_engineered_mappings`, `map_and_visualize_engineered`, and
+`screen_result_from_engineered_report`.
 
 
 #### P-Value Documentation
-The output contains two columns representing the confidence that a given read is of engineered origin. 
-The first column reports the percentage of k-mers classified as engineered out of all k-mers in the read. 
-The second column provides a p-value estimating the probability of observing this fraction of engineered k-mers by chance.
-The p-value is calculated using a binomial distribution based on the total number of classified k-mers,
-the number of classified engineered k-mers, and a background rate of engineered k-mers in non-engineered sequences. 
-This background rate represents the probability that a random, naturally occurring k-mer is misclassified as engineered.
-We recommend a conservative default background rate of 0.1%; lower values result in more aggressive filtering. 
-This rate was established on a curated dataset of non-engineered sequences, 
-comprising bacterial chromosomes (>22,000) and naturally occurring incomplete plasmids from IMG-PR (>561,000), 
+The report includes engineered k-mer coverage and a p-value for each read.
+The p-value estimates the probability of observing at least this many engineered
+k-mers by chance under a binomial null with background rate `--bg` (default 0.1%).
+A window-threshold Synthetic call is kept as engineered only when
+`p ≤ 0.05`; otherwise the k-mer component is reassigned Natural (CAI may still
+flag the read). Lower `--bg` makes significance easier to reach.
+This rate was established on a curated dataset of non-engineered sequences,
+comprising bacterial chromosomes (>22,000) and naturally occurring incomplete plasmids from IMG-PR (>561,000),
 each chopped into 1000 bp fragments.
 
-Reported p-values are adjusted for multiple testing across all classified reads using the Benjamini-Hochberg False 
-Discovery Rate (FDR) correction. 
+Benjamini-Hochberg FDR q-values are also computed internally; the engineered
+call currently gates on the raw p-value threshold above.
+

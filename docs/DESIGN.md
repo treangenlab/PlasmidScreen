@@ -15,8 +15,7 @@ flowchart LR
     E[Reads FASTA/FASTQ] --> F[Kraken2]
     F --> G[kraken classifications]
     G --> H[Engineered k-mer scan]
-    H --> P[Optional Perseus on Natural]
-    P --> I[engineered_report.txt]
+    H --> I[engineered_report.txt]
     E --> J[DIAMOND blastx]
     J --> K[diamond.tsv]
     K --> L[Codon CAI vs CSDB]
@@ -31,6 +30,11 @@ flowchart LR
 | Full screening | Not required | `run_screen()` / `python plasmidScreen.py screen` |
 | Codon-only | Not required | `analyze_codon_adaptation()` |
 | Overall engineered call | Not required | `run_screen()` → `ScreenResult.per_read` |
+| Prefetch GenBank | Required once | `prefetch_genbank_from_fasta()` / `prefetch-genbank` |
+| Map engineered reads | Not required† | `map_engineered_reads()` / `screen --map-hits` |
+| Visualize pileups | Not required‡ | `visualize_engineered_mappings()` / `screen --visualize` / `visualize` |
+
+† Requires local nucleotide FASTA + `blastn`. ‡ Feature tracks come from the local GenBank cache (prefetched) by default; `--fetch-genbank` optionally downloads missing records for ad-hoc installs.
 
 ---
 
@@ -241,9 +245,14 @@ For each read in `per_read`:
 ```
 engineered_overall =
     engineered_by_kmer_scan
-    OR engineered_by_perseus
     OR (codon_cai_engineered_threshold is set AND engineered_by_codon_cai is True)
 ```
+
+`engineered_by_kmer_scan` is True only when the window threshold is met **and** the
+binomial p-value is ≤ `PVALUE_ALPHA` (default 0.05). Higher p-values reassign the
+read as Natural for the k-mer component (CAI may still flag it).
+
+(Perseus is currently disabled; `engineered_by_perseus` remains on the model but is unused.)
 
 | Field | Meaning |
 |-------|---------|
@@ -284,6 +293,21 @@ Use `compute_engineered_overall()` from the library to apply the same rule outsi
 | `engineered_report_path` | `Path \| None` | Written engineered report (k-mer labels only) |
 | `codon_usage_report_path` | `Path \| None` | Written codon TSV |
 | `diamond_output_path` | `Path \| None` | Saved or loaded DIAMOND TSV path |
+| `top_engineered_references` | `tuple[SampleReferenceRank, ...]` | Filled by `map_engineered_reads` |
+| `engineered_mapping_hits` | `tuple[EngineeredMappingHit, ...]` | Filled by `visualize_engineered_mappings` |
+| `reference_database_source` | `str \| None` | Label for the blastn subject DB |
+
+#### `VisualizationReport`
+
+Returned by `visualize_engineered_mappings` / `map_and_visualize_engineered`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `output_dir` | `Path` | Directory containing pileup PNGs |
+| `pileup_paths` | `tuple[Path, ...]` | Written figure paths |
+| `engineered_mapping_hits` | `tuple[EngineeredMappingHit, ...]` | Per-plasmid mapping summaries |
+| `top_engineered_references` | `tuple[SampleReferenceRank, ...]` | Ranked references used for viz |
+| `report_json_path` | `Path \| None` | Sidecar `visualization_report.json` |
 
 #### `CodonAdaptationResult`
 
@@ -322,9 +346,9 @@ Per-read attribution and evidence for engineered calls.
 | `engineered_by_codon_cai` | bool \| None | `True` if CAI &gt; threshold; `False` if at/below; `None` if threshold unset or no CAI |
 | `engineered_overall` | bool | Combined decision (see §3.4) |
 | `overall_label` | `"Natural"` \| `"Synthetic"` | Human-readable combined label |
-| `engineered_by_perseus` | bool \| None | `True` if Perseus assigned taxid 32630 on a Natural read |
-| `perseus_taxid` | int \| None | Perseus `perseus_taxid` when scored |
-| `engineered_methods` | list[str] (property) | Contributing methods: `engineered_kmer_scan`, `perseus`, `codon_cai` |
+| `engineered_by_perseus` | bool \| None | Unused (Perseus currently disabled) |
+| `perseus_taxid` | int \| None | Unused (Perseus currently disabled) |
+| `engineered_methods` | list[str] (property) | Contributing methods: `engineered_kmer_scan`, `codon_cai` |
 | `engineered_any` | bool (property) | Alias for `engineered_overall` |
 
 #### `BuildCodonReferenceResult`
@@ -348,14 +372,16 @@ Per-read attribution and evidence for engineered calls.
 
 ### 4.2 Codon analysis gating
 
-- Full pipeline: codon CAI runs **only** for reads labeled **Natural** by the k-mer scan.
+- Full pipeline: codon CAI runs for reads that are **not** k-mer engineered after the
+  window + p-value gate (insignificant window hits are eligible for CAI).
 - Standalone `analyze_codon_adaptation`: scores all reads with DIAMOND hits unless `include_read_ids` is set.
 - If zero Natural reads, codon output is empty (no TSV unless path set with zero rows).
 
 ### 4.3 Overall engineered decision
 
 - Populated in `Workflow.run()` for every read in `engineered_scan.labels`.
-- **K-mer component:** `engineered_by_kmer_scan` is `True` when `kmer_label == "Synthetic"` (threshold `--threshold`, window `--window_size`).
+- **K-mer component:** `engineered_by_kmer_scan` is `True` when the window threshold is
+  met **and** binomial `p_value ≤ PVALUE_ALPHA` (default 0.05; `--bg` sets the null rate).
 - **Codon component:** only evaluated when `codon_cai_engineered_threshold` is set on the workflow. For Natural reads with a CAI score, `engineered_by_codon_cai = (cai_vs_host > threshold)`. Reads without CAI (e.g. k-mer Synthetic, or no DIAMOND hit) keep `engineered_by_codon_cai=None`.
 - **Overall:** `engineered_overall` is `True` if either component is `True`; `overall_label` is `"Synthetic"` or `"Natural"` accordingly.
 - When `--codon-cai-threshold` is omitted, `engineered_overall` equals `engineered_by_kmer_scan` for all reads.
@@ -407,6 +433,50 @@ screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_DB_PATH
   --debug-write-kraken-report
   --run-kraken / --no-run-kraken
   --threads INT
+  --map-hits / --no-map-hits
+  --reference-db PATH
+  --visualize / --no-visualize
+  --viz-dir PATH
+  --viz-top-n INT
+  --viz-min-bitscore FLOAT
+  --blastn TEXT
+  --blast-output-path PATH
+  --genbank PATH
+  --genbank-cache-dir PATH
+  --fetch-genbank / --no-fetch-genbank
+  --ncbi-api-key TEXT
+```
+
+### `prefetch-genbank` arguments
+
+Networked one-time fill of the local GenBank cache from a reference FASTA:
+
+```text
+prefetch-genbank REFERENCE_FASTA
+  --cache-dir PATH
+  --ncbi-api-key TEXT
+  --quiet / -q
+```
+
+### `visualize` arguments
+
+Standalone map + pileups from a prior engineered report (no Kraken/DIAMOND rerun).
+Feature tracks are loaded from the GenBank cache (see `prefetch-genbank`):
+
+```text
+visualize FASTA REPORT REFERENCE_DB VIZ_DIR
+  --threads INT
+  --top-n INT
+  --min-bitscore FLOAT
+  --blastn TEXT
+  --blast-output-path PATH
+  --genbank PATH
+  --genbank-cache-dir PATH
+  --fetch-genbank / --no-fetch-genbank
+  --ncbi-api-key TEXT
+  --threshold INT
+  --window_size INT
+  --quiet / -q
 ```
 
 ### `build` arguments
@@ -435,11 +505,18 @@ from plasmidScreen import (
     build_codon_database,        # convenience wrapper for build CLI
     analyze_codon_adaptation,    # -> tuple[list[CodonAdaptationResult], Path | None]
     run_screen,                  # -> ScreenResult (per_read engineered_overall)
+    map_engineered_reads,        # -> ScreenResult with top_engineered_references
+    visualize_engineered_mappings,  # -> VisualizationReport (+ pileups)
+    map_and_visualize_engineered,   # map then visualize
+    screen_result_from_engineered_report,  # rebuild ScreenResult from report TSV
+    prefetch_genbank_from_fasta, # fill local GenBank cache from reference FASTA
+    default_genbank_cache_dir,
     write_codon_adaptation_tsv,  # -> tuple[str, list[CodonAdaptationResult]]
     taxids_from_kraken_output,   # taxids for reference subset builds
     compute_engineered_overall,  # same OR rule as run_screen per_read
     ReadFlagDetail,
     ScreenResult,
+    VisualizationReport,
     CodonUsageStore,
     default_codon_usage_dir,
 )
@@ -448,5 +525,7 @@ from plasmidScreen import (
 Recommended airgapped workflow:
 
 1. Networked: `build_codon_reference(dir)` or subset taxids / Kraken-derived taxids.
-2. Copy `dir` (and DIAMOND DB if needed) to the airgapped environment.
-3. Run `run_screen(reads, kraken_db, diamond_db=..., codon_usage_dir=dir)` or codon-only `analyze_codon_adaptation(reads, diamond_db=..., codon_usage_dir=dir)`.
+2. Networked: `prefetch_genbank_from_fasta(plasmids.fa)` (or CLI `prefetch-genbank`).
+3. Copy codon dir, GenBank cache, and DIAMOND DB if needed to the airgapped environment.
+4. Run `run_screen(reads, kraken_db, diamond_db=..., codon_usage_dir=dir)` or codon-only `analyze_codon_adaptation(reads, diamond_db=..., codon_usage_dir=dir)`.
+5. Optional offline map/viz: `map_and_visualize_engineered(..., reference_db=plasmids.fa, viz_dir=...)`.

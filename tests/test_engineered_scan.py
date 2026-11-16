@@ -81,3 +81,44 @@ def test_scan_engineered_blocks_integration(
     text = result.engineered_report_path.read_text()
     assert "Natural\tread_natural_1" in text
     assert "Engineered\tread_synthetic_1\tengineered_kmer_scan" in text
+
+
+def test_insignificant_pvalue_reassigns_window_synthetic_as_natural(
+    sample_fasta: Path,
+    tmp_path: Path,
+) -> None:
+    """Window threshold met but p > alpha → Natural for engineered call."""
+    length = 100
+    k = 35
+    n_kmers = length - k + 1
+    # One engineered k-mer: meets threshold=1 but is insignificant under bg=0.001.
+    kraken = tmp_path / "kraken_weak.out"
+    kraken.write_text(
+        f"C\tread_synthetic_1\t562\t{length}\t0:1\t"
+        f"32630:1 562:{max(n_kmers - 1, 1)}\n"
+        f"C\tread_natural_1\t562\t{length}\t0:1\t562:{max(n_kmers, 1)}\n"
+    )
+    report = tmp_path / "report.txt"
+    wf = Workflow(
+        str(sample_fasta),
+        1,
+        str(report),
+        kraken_db=str(tmp_path / "kraken_db"),
+        threads=1,
+        kraken_raw_output=str(kraken),
+        run_kraken=False,
+        run_codon_usage=False,
+        engineered_kmer_threshold=1,
+        background_rate=0.001,
+        pvalue_alpha=0.05,
+    )
+    result = wf.run()
+    per = {r.read_id: r for r in result.per_read}
+    assert per["read_synthetic_1"].p_value is not None
+    assert per["read_synthetic_1"].p_value > 0.05
+    assert per["read_synthetic_1"].engineered_by_kmer_scan is False
+    assert per["read_synthetic_1"].engineered_overall is False
+    assert per["read_synthetic_1"].overall_label == "Natural"
+    assert per["read_synthetic_1"].kmer_label == "Natural"
+    text = report.read_text()
+    assert "Natural\tread_synthetic_1" in text
