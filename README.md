@@ -31,7 +31,7 @@ ran. If either are found to contain engineering, `ScreenResult` object will repo
 
 | Signal | Parameter | Counts toward overall engineered when |
 |--------|-----------|----------------------------------------|
-| K-mer scan | `--threshold`, `--window_size`, `--bg` | Window ≥ threshold **and** binomial p-value ≤ 0.05 → k-mer engineered |
+| K-mer scan | `--threshold`, `--window_size`, `--bg` / `--background-rate`, `--pvalue-alpha` | Window ≥ threshold **and** binomial p-value ≤ `--pvalue-alpha` (default 0.05) → k-mer engineered |
 | Codon CAI | `--codon-cai-threshold` (optional) | CAI &gt; threshold on a scored Natural read (requires codon step) |
 
 ### Library usage
@@ -226,6 +226,6 @@ This rate was established on a curated dataset of non-engineered sequences,
 comprising bacterial chromosomes (>22,000) and naturally occurring incomplete plasmids from IMG-PR (>561,000),
 each chopped into 1000 bp fragments.
 
-Benjamini-Hochberg FDR q-values are also computed internally; the engineered
-call currently gates on the raw p-value threshold above.
+The engineered call gates on the raw p-value threshold above (BH FDR helpers
+remain available in the library but are not used on the live screen path).
 

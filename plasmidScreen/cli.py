@@ -18,7 +18,7 @@ from plasmidScreen.api import (
 from plasmidScreen.lib.exceptions import PlasmidScreenError
 from plasmidScreen.lib.funcs import get_default_db_path
 from plasmidScreen.lib.logging_util import configure_logging
-from plasmidScreen.lib.models import BACKGROUND_RATE
+from plasmidScreen.lib.models import BACKGROUND_RATE, PVALUE_ALPHA
 from plasmidScreen.lib.types import GeneSet
 from plasmidScreen.src.codon_usage.codon_usage_build import build_codon_reference
 from plasmidScreen.src.codon_usage.codon_usage_db import default_codon_usage_dir
@@ -230,9 +230,24 @@ def screen(
         background_rate: Annotated[
             float,
             typer.Option(
-                "--bg", help="Background rate to set for p-value calculation"
+                "--bg",
+                "--background-rate",
+                help=(
+                    "Null background rate for the engineered-kmer binomial p-value "
+                    f"(default: {BACKGROUND_RATE})."
+                ),
             ),
         ] = BACKGROUND_RATE,
+        pvalue_alpha: Annotated[
+            float,
+            typer.Option(
+                "--pvalue-alpha",
+                help=(
+                    "Keep window-threshold Synthetic hits as engineered only if "
+                    f"P-Value ≤ this cutoff (default: {PVALUE_ALPHA})."
+                ),
+            ),
+        ] = PVALUE_ALPHA,
         mem_mode: Annotated[
             int,
             typer.Option(
@@ -424,6 +439,7 @@ def screen(
             # perseus_output_path=perseus_output_path,
             # debug_write_perseus_output=debug_write_perseus_out,
             background_rate=background_rate,
+            pvalue_alpha=pvalue_alpha,
             memory_mode=mem_mode,
             quiet_mode=quiet,
         )

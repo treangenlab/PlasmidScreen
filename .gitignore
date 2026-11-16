@@ -66,6 +66,10 @@ non_src_files/
 scratch.py
 scratch4.py
 
+# Perseus bridge (disabled; keep local copy, do not track)
+plasmidScreen/lib/perseus.py
+tests/test_perseus.py
+
 # Local benchmark configs / outputs (keep example YAML)
 benchmarks/felix_tne.yaml
 benchmark_out/

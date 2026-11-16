@@ -21,7 +21,10 @@ if __name__ == "__main__":
         memory_mode=0,
         background_rate=0.0003,
     )
-    print(my_screen_result.engineered_read_ids)  # overall
-    print(my_screen_result.engineered_scan.engineered_read_ids)  # k-mer
-    print(my_screen_result.codon_cai_engineered_read_ids)  # CAI
+    # Overall engineered (k-mer after p-value gate and/or codon CAI).
+    print(my_screen_result.engineered_read_ids)
+    # Window-threshold hits only (before p-value gate); can include demoted reads.
+    print(my_screen_result.engineered_scan.engineered_read_ids)
+    # CAI-flagged reads (requires codon step + threshold).
+    print(my_screen_result.codon_cai_engineered_read_ids)
     print(my_screen_result.natural_read_ids_overall)

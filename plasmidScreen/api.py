@@ -35,6 +35,7 @@ from plasmidScreen.lib.models import (
     CodonAdaptationResult,
     EngineeredScanResult,
     MEMORY_CONFIG,
+    PVALUE_ALPHA,
     ReadEngineeringLabel,
     ReadFlagDetail,
     ScreenResult,
@@ -86,13 +87,17 @@ def run_screen(
         # debug_write_perseus_output: bool = False,
         quiet_mode: bool = True,
         memory_mode: int = 0,
-        background_rate: float = BACKGROUND_RATE
+        background_rate: float = BACKGROUND_RATE,
+        pvalue_alpha: float = PVALUE_ALPHA,
 ) -> ScreenResult:
     """
     Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
 
-    Engineered detection uses Kraken2 minimizer blocks (taxid 32630) in a sliding window.
-    Codon CAI runs on reads still labeled **Natural** after the k-mer scan.
+    Engineered detection uses Kraken2 minimizer blocks (taxid 32630) in a sliding
+    window. A window hit counts toward the k-mer engineered call only when the
+    binomial p-value is ≤ ``pvalue_alpha`` (default 0.05; null rate ``background_rate``).
+    Codon CAI runs on reads that are **not** k-mer engineered after that gate
+    (insignificant window hits remain eligible for CAI).
     (Perseus Natural-read reclassification is currently disabled.)
 
     Parameters
@@ -122,13 +127,15 @@ def run_screen(
     run_codon_usage
         If False, skip DIAMOND and CAI (engineered scan only).
     codon_usage_output_path
-        Optional path for codon adaptation TSV (Natural reads only).
+        Optional path for codon adaptation TSV (reads not k-mer engineered after the
+        window + p-value gate).
     codon_cai_engineered_threshold
         If set, reads with CAI above this value get ``engineered_by_codon_cai=True`` and
         may be marked ``engineered_overall=True`` on :class:`~plasmidScreen.lib.models.ReadFlagDetail`
-        even when the k-mer scan labeled them Natural. Also adds columns to the codon TSV when written.
+        even when the k-mer component is Natural. Also adds columns to the codon TSV when written.
     engineered_kmer_threshold
-        Min engineered (32630) k-mers in a window to label a read Synthetic by k-mer scan.
+        Min engineered (32630) k-mers in a window for a window-threshold hit (still
+        requires ``p_value ≤ pvalue_alpha`` for ``engineered_by_kmer_scan``).
     window_size
         Sliding window size (bp) for the k-mer scan.
     diamond_db
@@ -150,7 +157,10 @@ def run_screen(
             medium(1) - 64GB  RAM
             high(2)   - 128GB RAM
     background_rate
-        probability rate of how likely any given kmer is classified as engineered.
+        Null rate for the binomial engineered-kmer p-value (``--bg``).
+    pvalue_alpha
+        Keep a window-threshold hit as k-mer engineered only if ``p ≤ pvalue_alpha``
+        (CLI ``--pvalue-alpha``; default 0.05).
 
     Returns
     -------
@@ -211,7 +221,8 @@ def run_screen(
         # debug_write_perseus_output=debug_write_perseus_output,
         quiet_mode=quiet_mode,
         mem_mode=memory_mode,
-        background_rate=background_rate
+        background_rate=background_rate,
+        pvalue_alpha=pvalue_alpha,
     )
     return workflow.run()
 

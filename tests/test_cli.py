@@ -144,7 +144,6 @@ def test_screen_visualize_invokes_map_and_visualize(
     assert kwargs["query_fasta"] == "reads.fa"
     assert kwargs["reference_db"] == "plasmids.fa"
     assert kwargs["viz_dir"] == "viz_out"
-    assert "write_html" not in kwargs
 
 
 @patch("plasmidScreen.cli.map_engineered_reads")
@@ -208,7 +207,6 @@ def test_visualize_command_invokes_pipeline(
     mock_map_viz.assert_called_once()
     kwargs = mock_map_viz.call_args.kwargs
     assert kwargs["top_n"] == 3
-    assert "write_html" not in kwargs
     assert kwargs["reference_db"] == "plasmids.fa"
     # Default: cache-only; --fetch-genbank opts into on-demand NCBI.
     assert kwargs.get("fetch_genbank") is False

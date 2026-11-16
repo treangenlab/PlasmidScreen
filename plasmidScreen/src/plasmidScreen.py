@@ -10,7 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 from tqdm import tqdm
 
-from plasmidScreen.lib.funcs import call_synthetic_reads
+from plasmidScreen.lib.funcs import synthetic_pvalue
 from plasmidScreen.lib.exceptions import InputError, KrakenError
 # Perseus disabled for now — re-enable by uncommenting the import and pipeline blocks below.
 # from plasmidScreen.lib.perseus import (
@@ -443,12 +443,9 @@ class Workflow:
             result.synthetic_count,
             result.synthetic_count + result.natural_count,
         )
-        p_values, _qvals, _syn = call_synthetic_reads(
-            target_kmers,
-            tot_kmers,
-            self.background_rate,
-            n_reads_total=len(entries),
-            alpha=self.pvalue_alpha,
+        # Raw binomial p-values only; BH FDR helpers remain in lib.funcs for optional use.
+        p_values = np.atleast_1d(
+            synthetic_pvalue(target_kmers, tot_kmers, self.background_rate)
         )
         return result, p_values, kmer_max_by_read
 

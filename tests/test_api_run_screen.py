@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plasmidScreen.api import run_screen
-from plasmidScreen.lib.models import BACKGROUND_RATE
+from plasmidScreen.lib.models import BACKGROUND_RATE, PVALUE_ALPHA
 
 
 def test_run_screen_requires_diamond_db() -> None:
@@ -106,6 +106,7 @@ def test_run_screen_delegates_defaults_to_workflow(mock_workflow_cls: MagicMock)
     assert kwargs["codon_cai_engineered_threshold"] == 0.6
     assert kwargs["window_size"] == 200
     assert kwargs["background_rate"] == BACKGROUND_RATE
+    assert kwargs["pvalue_alpha"] == PVALUE_ALPHA
     assert kwargs["mem_mode"] == 0
     assert kwargs["run_codon_usage"] is False
     mock_instance.run.assert_called_once()
@@ -121,9 +122,11 @@ def test_run_screen_passes_background_rate(mock_workflow_cls: MagicMock) -> None
         "kraken_db",
         run_codon_usage=False,
         background_rate=0.01,
+        pvalue_alpha=0.01,
         memory_mode=2,
     )
     kwargs = mock_workflow_cls.call_args.kwargs
     assert kwargs["seq_type"] == 0
     assert kwargs["background_rate"] == 0.01
+    assert kwargs["pvalue_alpha"] == 0.01
     assert kwargs["mem_mode"] == 2

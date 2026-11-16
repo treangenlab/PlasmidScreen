@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 from plasmidScreen.lib.exceptions import DiamondError, InputError
-from plasmidScreen.lib.models import MEMORY_MODE, MEMORY_CONFIG
+# MEMORY_MODE / MEMORY_CONFIG unused here; mem_mode is compared as 0/1/2 ints.
+# from plasmidScreen.lib.models import MEMORY_MODE, MEMORY_CONFIG
 
 # outfmt 6: qseqid sseqid qstart qend pident length evalue bitscore staxids sscinames
 DIAMOND_OUTFMT = (

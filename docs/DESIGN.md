@@ -194,28 +194,31 @@ These parameters are copied onto `ScreenResult` (`engineered_kmer_threshold`, `e
 
 **Path:** user-provided engineered report path (e.g. `report.txt`)
 
+Written by `Workflow.write_screen_result` from `per_read` (overall call, not the
+window-only `EngineeredScanResult` labels).
+
 | Column | Type | Meaning |
 |--------|------|---------|
-| Label | `Natural` \| `Synthetic` | **K-mer scan only** (not the combined `overall_label`; see §3.4) |
+| Label | `Engineered` \| `Natural` | From `engineered_overall` (see §3.4) |
 | Read_ID | string | Read identifier |
-| Methods | string | Method tags (e.g. `engineered_kmer_scan`) |
-| EngineeredKmerMaxInWindow | int | Max engineered-kmer count observed in any window |
-| KmerThreshold | int | Threshold used to label Synthetic |
-| WindowSize | int | Window size used for scanning |
+| Methods | string | Contributing methods (`engineered_kmer_scan`, `codon_cai`, …) or `NA` |
+| P-Value | float | Binomial p-value for engineered k-mer count vs `--bg` |
+| Eng-Coverage Percentage | percent string | Fraction of mapped k-mers that are engineered (e.g. `5.80%`) |
 
 **Example**
 
 ```text
-Label	Read_ID	Methods	EngineeredKmerMaxInWindow	KmerThreshold	WindowSize
-Natural	read_natural_1		0	25	200
-Synthetic	read_synthetic_1	engineered_kmer_scan	35	25	200
+Label	Read_ID	Methods	P-Value	Eng-Coverage Percentage
+Natural	read_natural_1	NA	1.0	0.00%
+Engineered	read_synthetic_1	engineered_kmer_scan	1.2e-10	14.75%
 ```
 
 ### 3.2 Codon usage report (TSV)
 
 **Path:** `--codon-usage-output` (optional)
 
-Only **Natural** reads are scored when run via full `screen` workflow.
+Only reads that are **not** k-mer engineered after the window + p-value gate are
+scored when run via the full `screen` workflow.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -238,7 +241,9 @@ read_natural_1	+	0-99	562	562	99	0.7234
 
 ### 3.4 Overall engineered classification (library)
 
-Produced only in **`ScreenResult`** / **`ReadFlagDetail`** (not in the k-mer report TSV file).
+Produced in **`ScreenResult`** / **`ReadFlagDetail`**. The engineered report TSV
+`Label` column is this overall call (`Engineered` / `Natural`), not the window-only
+scan label.
 
 For each read in `per_read`:
 
@@ -270,7 +275,7 @@ read as Natural for the k-mer component (CAI may still flag it).
 | `engineered_read_ids` | Set of read IDs engineered overall |
 | `natural_read_ids_overall` | Set of read IDs natural overall |
 
-**Count mismatch:** `engineered_scan.synthetic_count` counts k-mer **Synthetic** reads only. `overall_synthetic_count` can be higher when `--codon-cai-threshold` flags additional Natural reads via high CAI.
+**Count mismatch:** `engineered_scan.synthetic_count` counts **window-threshold** hits only (before the p-value gate). After gating, some of those reads are demoted for `engineered_by_kmer_scan`, so `engineered_scan.synthetic_count` can be **higher** than the number of k-mer-engineered reads in `per_read`. Separately, `overall_synthetic_count` can rise above the gated k-mer count when `--codon-cai-threshold` flags additional reads via high CAI.
 
 Use `compute_engineered_overall()` from the library to apply the same rule outside `run_screen`.
 
@@ -336,8 +341,8 @@ Per-read attribution and evidence for engineered calls.
 | Field | Type | Description |
 |-------|------|-------------|
 | `read_id` | str | Read ID |
-| `kmer_label` | `"Natural"` \| `"Synthetic"` | Label from engineered k-mer scan |
-| `engineered_by_kmer_scan` | bool | True if engineered k-mer scan flagged |
+| `kmer_label` | `"Natural"` \| `"Synthetic"` | Window hit **and** `p ≤ PVALUE_ALPHA` → Synthetic; else Natural |
+| `engineered_by_kmer_scan` | bool | Same gate as `kmer_label == "Synthetic"` |
 | `engineered_kmer_max_in_window` | int \| None | Max engineered-kmer count observed |
 | `engineered_kmer_threshold` | int \| None | Threshold used |
 | `engineered_kmer_window_size` | int \| None | Window size used |
@@ -367,7 +372,11 @@ Per-read attribution and evidence for engineered calls.
 
 ### 4.1 Engineered vs Natural
 
-- Each classified read with valid k-mer block data receives **Synthetic** if sliding-window count of taxid `32630` ≥ threshold; otherwise **Natural**.
+Two layers:
+
+- **Window scan** (`EngineeredScanResult.labels`): **Synthetic** if sliding-window count of taxid `32630` ≥ threshold; otherwise **Natural**.
+- **K-mer engineered call** (`engineered_by_kmer_scan` / `kmer_label`): window Synthetic **and** binomial `p_value ≤ PVALUE_ALPHA` (default 0.05). Insignificant window hits are treated as Natural for this component.
+- **Report `Label`**: overall call (`Engineered` / `Natural`) from §3.4 / §4.3.
 - Unclassified reads (`U`) are still listed in the engineered report if present in Kraken output; codon analysis skips reads without DIAMOND host/ORF assignment.
 
 ### 4.2 Codon analysis gating
@@ -381,7 +390,8 @@ Per-read attribution and evidence for engineered calls.
 
 - Populated in `Workflow.run()` for every read in `engineered_scan.labels`.
 - **K-mer component:** `engineered_by_kmer_scan` is `True` when the window threshold is
-  met **and** binomial `p_value ≤ PVALUE_ALPHA` (default 0.05; `--bg` sets the null rate).
+  met **and** binomial `p_value ≤ pvalue_alpha` (default 0.05 via `--pvalue-alpha`;
+  `--bg` sets the null rate).
 - **Codon component:** only evaluated when `codon_cai_engineered_threshold` is set on the workflow. For Natural reads with a CAI score, `engineered_by_codon_cai = (cai_vs_host > threshold)`. Reads without CAI (e.g. k-mer Synthetic, or no DIAMOND hit) keep `engineered_by_codon_cai=None`.
 - **Overall:** `engineered_overall` is `True` if either component is `True`; `overall_label` is `"Synthetic"` or `"Natural"` accordingly.
 - When `--codon-cai-threshold` is omitted, `engineered_overall` equals `engineered_by_kmer_scan` for all reads.
@@ -433,6 +443,8 @@ screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_DB_PATH
   --debug-write-kraken-report
   --run-kraken / --no-run-kraken
   --threads INT
+  --bg / --background-rate FLOAT
+  --pvalue-alpha FLOAT
   --map-hits / --no-map-hits
   --reference-db PATH
   --visualize / --no-visualize
