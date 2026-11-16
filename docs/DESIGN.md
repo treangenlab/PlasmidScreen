@@ -167,10 +167,13 @@ Directory (default: `~/.local/share/PlasmidScreen/codon_usage/`):
 | Parameter | CLI flag | Default | Description |
 |-----------|----------|---------|-------------|
 | `window_size` | `--window_size` | 200 | Nucleotide window for k-mer voting |
-| `engineered_kmer_threshold` | `--threshold` | 25 | Min engineered (32630) k-mers in window to label **Synthetic** |
+| `engineered_kmer_threshold` | `--threshold` | 10 | Min engineered (32630) k-mers in window to label **Synthetic** |
+| `kmer_size` | `--kmer-size` | 21 | k-mer length (must match Kraken2 DB) |
+| `minimizer_size` | `--minimizer-size` | 17 | Minimizer length ``ℓ`` (must match Kraken2 DB) |
 | `threads` | `--threads` | 4 | Kraken2 threads (when `run_kraken=True`) |
 
-Effective k-mers per window: `window_size - 21 + 1` (Kraken k=21 minimizers in window logic).
+Effective slots per window use ``window_size - kmer_size - minimizer_size + 2``
+in the scan math (defaults: k=21, ℓ=17).
 
 ### 2.2 Codon adaptation (DIAMOND + CSDB)
 
@@ -449,6 +452,8 @@ No network access occurs during `analyze_codon_adaptation` or `run_screen` codon
 screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_DB_PATH
   --window_size INT
   --threshold INT
+  --kmer-size INT
+  --minimizer-size INT
   --codon-usage-output PATH
   --codon-usage-dir PATH
   --codon-cai-threshold FLOAT

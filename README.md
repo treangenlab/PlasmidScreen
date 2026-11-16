@@ -31,7 +31,7 @@ ran. If either are found to contain engineering, `ScreenResult` object will repo
 
 | Signal | Parameter | Counts toward overall engineered when |
 |--------|-----------|----------------------------------------|
-| K-mer scan | `--threshold`, `--window_size`, `--bg` / `--background-rate`, `--pvalue-alpha` | Window ≥ threshold **and** binomial p-value ≤ `--pvalue-alpha` (default 0.05) → k-mer engineered |
+| K-mer scan | `--threshold`, `--window_size`, `--kmer-size`, `--minimizer-size`, `--bg` / `--background-rate`, `--pvalue-alpha` | Window ≥ threshold **and** binomial p-value ≤ `--pvalue-alpha` (default 0.05) → k-mer engineered |
 | Codon CAI | `--codon-cai-threshold` (optional) | CAI &gt; threshold on a scored Natural read (requires codon step) |
 
 ### Library usage

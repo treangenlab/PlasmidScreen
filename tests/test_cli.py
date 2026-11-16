@@ -106,8 +106,33 @@ def test_screen_skip_codon_usage_invokes_run_screen(mock_run: MagicMock) -> None
     assert kwargs["run_codon_usage"] is False
     assert kwargs["engineered_kmer_threshold"] == 15
     assert kwargs["background_rate"] == 0.001
+    assert kwargs["kmer_size"] == 21
+    assert kwargs["minimizer_size"] == 17
     assert kwargs["seq_type"] == 1  # CLI default: short read
     assert kwargs["quiet_mode"] is False
+
+
+@patch("plasmidScreen.cli.run_screen")
+def test_screen_passes_kmer_and_minimizer_size(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(overall_synthetic_count=0, per_read=[])
+    result = runner.invoke(
+        app,
+        [
+            "screen",
+            "reads.fa",
+            "report.txt",
+            "kraken_db",
+            "--skip-codon-usage",
+            "--kmer-size",
+            "35",
+            "--minimizer-size",
+            "31",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["kmer_size"] == 35
+    assert kwargs["minimizer_size"] == 31
 
 
 @patch("plasmidScreen.cli.map_and_visualize_engineered")

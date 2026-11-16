@@ -77,6 +77,26 @@ def screen(
                 help="Threshold of required identified engineered DNA.",
             ),
         ] = 10,
+        kmer_size: Annotated[
+            int,
+            typer.Option(
+                "--kmer-size",
+                help=(
+                    "k-mer length for the engineered window scan (must match "
+                    "the Kraken2 database; default 21)."
+                ),
+            ),
+        ] = 21,
+        minimizer_size: Annotated[
+            int,
+            typer.Option(
+                "--minimizer-size",
+                help=(
+                    "Minimizer length for the engineered window scan (must "
+                    "match the Kraken2 database; default 17)."
+                ),
+            ),
+        ] = 17,
         codon_usage_output: Annotated[
             str | None,
             typer.Option(
@@ -243,7 +263,7 @@ def screen(
             typer.Option(
                 "--pvalue-alpha",
                 help=(
-                    "Keep window-threshold Synthetic hits as engineered only if "
+                    "Keep window-threshold Engineered hits as engineered only if "
                     f"P-Value ≤ this cutoff (default: {PVALUE_ALPHA})."
                 ),
             ),
@@ -426,6 +446,8 @@ def screen(
             threads=threads,
             window_size=window_size,
             engineered_kmer_threshold=engineered_k_mer_threshold,
+            kmer_size=kmer_size,
+            minimizer_size=minimizer_size,
             codon_usage_output_path=codon_usage_output,
             codon_usage_dir=codon_usage_dir,
             codon_cai_engineered_threshold=codon_cai_engineered_threshold,

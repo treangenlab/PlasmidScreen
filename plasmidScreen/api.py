@@ -42,6 +42,17 @@ from plasmidScreen.lib.models import (
 )
 from plasmidScreen.lib.types import GeneSet
 from plasmidScreen.src.plasmidScreen import Workflow
+from plasmidScreen.lib.engineered_report import rewrite_engineered_report_if_present
+from plasmidScreen.src.post_hit_analysis import post_analysis_report
+from plasmidScreen.src.visualization_code import (
+    annotate_screen_result_overlapping_features,
+)
+from plasmidScreen.lib.engineered_report import rewrite_engineered_report_if_present
+from plasmidScreen.src.visualization_code import (
+    annotate_screen_result_overlapping_features,
+    create_pile_ups,
+)
+
 
 __all__ = [
     "build_codon_database",
@@ -68,6 +79,8 @@ def run_screen(
         threads: int = 4,
         window_size: int = 200,
         engineered_kmer_threshold: int = 10,
+        kmer_size: int = 21,
+        minimizer_size: int = 17,
         codon_usage_dir: str | Path | None = None,
         run_kraken: bool = True,
         debug_write_kraken_output: bool = False,
@@ -138,6 +151,12 @@ def run_screen(
         requires ``p_value ≤ pvalue_alpha`` for ``engineered_by_kmer_scan``).
     window_size
         Sliding window size (bp) for the k-mer scan.
+    kmer_size
+        k-mer length used in the sliding-window / minimizer math (must match the
+        Kraken2 DB; default 21).
+    minimizer_size
+        Minimizer length ``ℓ`` used with ``kmer_size`` (must match the Kraken2 DB;
+        default 17).
     diamond_db
         DIAMOND protein database (``.dmnd``). Required when ``run_codon_usage=True`` and
         ``run_diamond=True``.
@@ -203,6 +222,8 @@ def run_screen(
         kraken_raw_output=str(kraken_output_path) if kraken_output_path else None,
         window_size=window_size,
         engineered_kmer_threshold=engineered_kmer_threshold,
+        kmer_size=kmer_size,
+        minimizer_size=minimizer_size,
         codon_usage_output_path=str(codon_usage_output_path) if codon_usage_output_path else None,
         codon_usage_dir=str(codon_usage_dir) if codon_usage_dir else None,
         run_kraken=run_kraken,
@@ -255,11 +276,6 @@ def map_engineered_reads(
     Rewrites the engineered TSV when ``engineered_report_path`` is set. Does
     **not** write pileups — call :func:`visualize_engineered_mappings` for that.
     """
-    from plasmidScreen.lib.engineered_report import rewrite_engineered_report_if_present
-    from plasmidScreen.src.post_hit_analysis import post_analysis_report
-    from plasmidScreen.src.visualization_code import (
-        annotate_screen_result_overlapping_features,
-    )
 
     enriched = post_analysis_report(
         screen_result,
@@ -309,11 +325,6 @@ def visualize_engineered_mappings(
     :func:`prefetch_genbank_from_fasta`). On-demand NCBI fetch is off unless
     ``fetch_genbank=True``.
     """
-    from plasmidScreen.lib.engineered_report import rewrite_engineered_report_if_present
-    from plasmidScreen.src.visualization_code import (
-        annotate_screen_result_overlapping_features,
-        create_pile_ups,
-    )
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)

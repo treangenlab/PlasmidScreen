@@ -139,8 +139,8 @@ class Workflow:
             # debug_write_perseus_output: bool = False,
             quiet_mode: bool = False,
             mem_mode: int = 0,
-            kmer_size: int = 35,
-            minimizer_size: int = 31,
+            kmer_size: int = 21,
+            minimizer_size: int = 17,
             background_rate: float = BACKGROUND_RATE,
             pvalue_alpha: float = PVALUE_ALPHA,
     ) -> None:

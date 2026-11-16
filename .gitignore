@@ -35,7 +35,6 @@ htmlcov/
 *~
 
 # Local data, results, and large binaries (do not commit)
-*.mmi
 *.dmnd
 *.kraken_out*
 *_kraken_out.txt

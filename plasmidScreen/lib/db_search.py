@@ -47,6 +47,7 @@ _BLAST_MIN_COLS = 12
 
 _FASTA_SUFFIXES = {".fa", ".fasta", ".fna", ".ffn", ".fas", ".faa"}
 
+
 @dataclass(frozen=True)
 class HitFilterConfig:
     """Thresholds for BLAST hit retention and sample-level reference ranking."""
@@ -54,22 +55,12 @@ class HitFilterConfig:
     min_bitscore: float = 50.0
     top_n_references: int = 5
     max_evalue: Optional[float] = None
-    # Legacy aliases used by older callers.
+    # Alias for top_n_references used by some callers.
     top_n: int = 5
     min_identity: float = 0.0
-    min_mapq: int = 0
     tile_along_query: bool = False
     min_cover_gain_bp: int = 15
-    secondary_n: int = 50
 
-@dataclass(frozen=True)
-class ConfidenceModelWeights:
-    """Unused by the BLAST path; kept for backwards-compatible configs."""
-
-    intercept: float = 0.0
-    coverage: float = 0.45
-    identity: float = 0.30
-    uniqueness: float = 0.25
 
 @dataclass
 class ReferenceSearchConfig:
@@ -79,13 +70,11 @@ class ReferenceSearchConfig:
     database_source: Optional[str] = None
     threads: int = 4
     filters: HitFilterConfig = field(default_factory=HitFilterConfig)
-    confidence_weights: ConfidenceModelWeights = field(
-        default_factory=ConfidenceModelWeights
-    )
     output_path: Optional[Path] = None
     run_blast: bool = True
     blastn_binary: str = "blastn"
     blast_task: str = "blastn"
+
 
 @dataclass(frozen=True)
 class QueryReferenceMatch:
@@ -115,6 +104,7 @@ def _bitscore_of(hit: QueryMatchConfidence) -> float:
     if hit.bitscore is not None:
         return float(hit.bitscore)
     return float(hit.match_score)
+
 
 def parse_blast_outfmt6_line(
         line: str,
@@ -166,6 +156,7 @@ def parse_blast_outfmt6_line(
         },
     )
 
+
 def parse_blast_outfmt6(
         lines: Iterable[str],
         *,
@@ -182,6 +173,7 @@ def parse_blast_outfmt6(
         out[rid].sort(key=lambda h: (-_bitscore_of(h), -(h.sequence_identity or 0.0)))
     return out
 
+
 def _pass_significance(hit: QueryMatchConfidence, cfg: HitFilterConfig) -> bool:
     if cfg.max_evalue is not None and hit.evalue is not None and hit.evalue > cfg.max_evalue:
         return False
@@ -189,9 +181,8 @@ def _pass_significance(hit: QueryMatchConfidence, cfg: HitFilterConfig) -> bool:
         return False
     if _bitscore_of(hit) < cfg.min_bitscore:
         return False
-    if hit.mapq is not None and cfg.min_mapq > 0 and hit.mapq < cfg.min_mapq:
-        return False
     return True
+
 
 def filter_significant_hits(
         hits: Sequence[QueryMatchConfidence],
@@ -201,8 +192,10 @@ def filter_significant_hits(
     cfg = config or HitFilterConfig()
     return [h for h in hits if _pass_significance(h, cfg)]
 
+
 def _top_n_references(cfg: HitFilterConfig) -> int:
     return cfg.top_n_references if cfg.top_n_references > 0 else cfg.top_n
+
 
 def rank_sample_references(
         hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
@@ -242,6 +235,7 @@ def rank_sample_references(
         )
     ranks.sort(key=lambda r: (-r.n_reads, -r.sum_bitscore, r.accession_id))
     return tuple(ranks[:top_n])
+
 
 def make_primary_summary(
         selected_hits: Sequence[QueryMatchConfidence],
@@ -290,12 +284,14 @@ def make_primary_summary(
         features={"bitscore": _bitscore_of(primary), "coverage": coverage},
     )
 
+
 def _hit_sort_key(hit: QueryMatchConfidence) -> tuple[float, float, float]:
     return (
         -hit.match_score,
         -(hit.mapq or 0),
         -(hit.sequence_identity or 0.0),
     )
+
 
 def select_best_hits(
         hits: Sequence[QueryMatchConfidence],
@@ -327,6 +323,7 @@ def select_best_hits(
 
     kept.sort(key=_hit_sort_key)
     return kept[: cfg.top_n]
+
 
 def select_tiling_hits(
         hits: Sequence[QueryMatchConfidence],
@@ -390,6 +387,7 @@ def select_tiling_hits(
     )
     return selected
 
+
 def select_best_hits_by_query(
         hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
         config: HitFilterConfig | None = None,
@@ -405,10 +403,12 @@ def select_best_hits_by_query(
         for query_id, hits in hits_by_query.items()
     }
 
+
 def _interval_overlap_bp(
         a_start: int, a_end: int, b_start: int, b_end: int
 ) -> int:
     return max(0, min(a_end, b_end) - max(a_start, b_start))
+
 
 def competing_subject_counts(
         selected: Sequence[QueryMatchConfidence],
@@ -433,6 +433,7 @@ def competing_subject_counts(
         counts.append(max(1, len(subjects)))
     return counts
 
+
 def covered_query_bases(
         hits: Sequence[QueryMatchConfidence],
         query_length_bp: int,
@@ -450,23 +451,23 @@ def covered_query_bases(
             covered[pos] = True
     return sum(covered)
 
+
 def compute_match_confidence(
         selected_hits: Sequence[QueryMatchConfidence],
         *,
         candidates: Sequence[QueryMatchConfidence] | None = None,
         query_length_bp: int | None = None,
-        weights: ConfidenceModelWeights | None = None,
 ) -> QueryMatchConfidence | None:
     """Primary summary for retained hits (bitscore-best alignment)."""
-    del candidates, query_length_bp, weights  # unused; kept for call-site compat
+    del candidates, query_length_bp  # unused; kept for call-site compat
     return make_primary_summary(selected_hits)
+
 
 def build_query_matches(
         hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
         config: HitFilterConfig | None = None,
         *,
         query_lengths: Mapping[str, int] | None = None,
-        confidence_weights: ConfidenceModelWeights | None = None,
 ) -> SampleReferenceSearchResult:
     """
     Bitscore-filter hits, pick sample top-N references, attach per-query hits.
@@ -474,7 +475,6 @@ def build_query_matches(
     Ranking: references covering the most distinct reads win; bitscore sum
     breaks ties. Only hits to those top references are retained per read.
     """
-    del confidence_weights  # unused by BLAST path
     cfg = config or HitFilterConfig()
     lengths = query_lengths or {}
 
@@ -511,11 +511,13 @@ def build_query_matches(
         )
     return SampleReferenceSearchResult(matches=out, top_references=top_refs)
 
+
 def _seq_format(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix in {".fq", ".fastq"}:
         return "fastq"
     return "fasta"
+
 
 def read_query_lengths(fasta_path: str | Path) -> dict[str, int]:
     """Map sequence ID -> length from a FASTA/FASTQ file."""
@@ -524,6 +526,7 @@ def read_query_lengths(fasta_path: str | Path) -> dict[str, int]:
         record.id: len(record.seq)
         for record in SeqIO.parse(str(path), _seq_format(path))
     }
+
 
 def write_engineered_query_fasta(
         query_ids: set[str],
@@ -574,6 +577,7 @@ def write_engineered_query_fasta(
     )
     return out
 
+
 class ReferenceSearchEngine(ABC):
     """Abstract interface for batch reference-database lookup."""
 
@@ -585,6 +589,7 @@ class ReferenceSearchEngine(ABC):
             query_ids: Sequence[str] | None = None,
     ) -> SampleReferenceSearchResult:
         """Query the reference database for sequences in ``query_fasta``."""
+
 
 class BlastnReferenceSearchEngine(ReferenceSearchEngine):
     """
@@ -598,8 +603,8 @@ class BlastnReferenceSearchEngine(ReferenceSearchEngine):
     def __init__(self, config: ReferenceSearchConfig) -> None:
         self.config = config
         self.database_source = (
-            config.database_source
-            or f"blastn:{Path(config.reference_db).name}"
+                config.database_source
+                or f"blastn:{Path(config.reference_db).name}"
         )
 
     def search_batch(
@@ -698,11 +703,10 @@ class BlastnReferenceSearchEngine(ReferenceSearchEngine):
             query_lengths=query_lengths,
         )
 
-# Preferred engine alias.
-DiamondReferenceSearchEngine = BlastnReferenceSearchEngine
 
 def _reference_is_fasta(path: Path) -> bool:
     return path.suffix.lower() in _FASTA_SUFFIXES
+
 
 def run_blastn_alignment(
         reads_path: Path,
@@ -759,10 +763,11 @@ def run_blastn_alignment(
     logger.info("blastn returned %d hit lines in %.3fs", len(lines), elapsed)
     return lines
 
+
 def enrich_screen_result(
         screen_result: ScreenResult,
         matches_by_read: Mapping[str, QueryReferenceMatch | Sequence[QueryMatchConfidence]]
-        | SampleReferenceSearchResult,
+                         | SampleReferenceSearchResult,
         *,
         database_source: str | None = None,
         searched: bool = True,
@@ -846,6 +851,7 @@ def enrich_screen_result(
         top_engineered_references=ranks,
         engineered_mapping_hits=(),
     )
+
 
 def enrich_screen_result_with_engine(
         screen_result: ScreenResult,

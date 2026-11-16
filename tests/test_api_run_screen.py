@@ -105,6 +105,8 @@ def test_run_screen_delegates_defaults_to_workflow(mock_workflow_cls: MagicMock)
     assert kwargs["engineered_kmer_threshold"] == 10
     assert kwargs["codon_cai_engineered_threshold"] == 0.6
     assert kwargs["window_size"] == 200
+    assert kwargs["kmer_size"] == 21
+    assert kwargs["minimizer_size"] == 17
     assert kwargs["background_rate"] == BACKGROUND_RATE
     assert kwargs["pvalue_alpha"] == PVALUE_ALPHA
     assert kwargs["mem_mode"] == 0
