@@ -291,9 +291,9 @@ def screen(
             typer.Option(
                 "--visualize/--no-visualize",
                 help=(
-                    "After screening (and mapping), write pileup figures and "
-                    "visualization_report.json under --viz-dir. Implies "
-                    "--map-hits when mapping has not run yet."
+                    "After screening (and mapping), write pileup figures under "
+                    "--viz-dir. Implies --map-hits when mapping has not run yet "
+                    "(map already fills BLAST/feature report columns)."
                 ),
             ),
         ] = False,
@@ -302,7 +302,7 @@ def screen(
             typer.Option(
                 "--viz-dir",
                 help=(
-                    "Output directory for pileups / viz JSON. Required with "
+                    "Output directory for pileup PNGs. Required with "
                     "--visualize (default: <report>_viz beside the report)."
                 ),
             ),
@@ -339,7 +339,10 @@ def screen(
             str | None,
             typer.Option(
                 "--genbank",
-                help="Optional local GenBank file for feature tracks on pileups.",
+                help=(
+                    "Optional local GenBank file for map-hits overlapping "
+                    "features and pileup tracks."
+                ),
             ),
         ] = None,
         genbank_cache_dir: Annotated[
@@ -347,8 +350,8 @@ def screen(
             typer.Option(
                 "--genbank-cache-dir",
                 help=(
-                    "Local GenBank cache for pileup feature tracks "
-                    f"(default: {default_genbank_cache_dir()}). "
+                    "Local GenBank cache for map-hits overlapping features and "
+                    f"pileup tracks (default: {default_genbank_cache_dir()}). "
                     "Prefill with `plasmidscreen prefetch-genbank`."
                 ),
             ),
@@ -358,8 +361,9 @@ def screen(
             typer.Option(
                 "--fetch-genbank/--no-fetch-genbank",
                 help=(
-                    "With --visualize, download missing GenBank records from NCBI "
-                    "into the cache (default: off; prefer prefetch-genbank)."
+                    "With --map-hits / --visualize, download missing GenBank "
+                    "records from NCBI into the cache (default: off; prefer "
+                    "prefetch-genbank)."
                 ),
             ),
         ] = False,
@@ -477,10 +481,16 @@ def screen(
                     ncbi_api_key=ncbi_api_key,
                 )
                 if not quiet:
+                    report_note = (
+                        f"; report {result.engineered_report_path}"
+                        if result.engineered_report_path
+                        else ""
+                    )
                     logger.info(
-                        "Visualization complete: %d pileup(s) → %s",
+                        "Visualization complete: %d pileup(s) → %s%s",
                         len(viz_report.pileup_paths),
                         viz_report.output_dir,
+                        report_note,
                     )
             else:
                 assert reference_db is not None
@@ -493,6 +503,10 @@ def screen(
                     min_bitscore=viz_min_bitscore,
                     output_path=blast_output_path,
                     blastn_binary=blastn_binary,
+                    genbank_path=genbank_path,
+                    genbank_cache_dir=genbank_cache_dir,
+                    fetch_genbank=fetch_genbank,
+                    ncbi_api_key=ncbi_api_key,
                 )
                 if not quiet:
                     logger.info(
@@ -519,7 +533,7 @@ def visualize(
         ],
         viz_dir: Annotated[
             str,
-            typer.Argument(help="Output directory for pileups and visualization_report.json"),
+            typer.Argument(help="Output directory for pileup PNGs"),
         ],
         threads: Annotated[
             int, typer.Option("--threads", help="Threads for blastn")
@@ -556,7 +570,10 @@ def visualize(
             str | None,
             typer.Option(
                 "--genbank",
-                help="Optional local GenBank file for feature tracks on pileups.",
+                help=(
+                    "Optional local GenBank file for overlapping features and "
+                    "pileup tracks."
+                ),
             ),
         ] = None,
         genbank_cache_dir: Annotated[
@@ -564,8 +581,8 @@ def visualize(
             typer.Option(
                 "--genbank-cache-dir",
                 help=(
-                    "Local GenBank cache for pileup feature tracks "
-                    f"(default: {default_genbank_cache_dir()}). "
+                    "Local GenBank cache for overlapping features and pileup "
+                    f"tracks (default: {default_genbank_cache_dir()}). "
                     "Prefill with `plasmidscreen prefetch-genbank`."
                 ),
             ),
@@ -638,12 +655,18 @@ def visualize(
         return  # pragma: no cover
 
     if not quiet:
+        report_note = (
+            f"; report {result.engineered_report_path}"
+            if result.engineered_report_path
+            else ""
+        )
         logger.info(
-            "Visualization complete: %d/%d engineered read(s), %d pileup(s) → %s",
+            "Visualization complete: %d/%d engineered read(s), %d pileup(s) → %s%s",
             result.overall_synthetic_count,
             len(result.per_read),
             len(viz_report.pileup_paths),
             viz_report.output_dir,
+            report_note,
         )
 
 

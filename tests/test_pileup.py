@@ -140,7 +140,9 @@ def test_create_pile_ups_attaches_engineered_mapping_hits(tmp_path: Path) -> Non
     assert by_acc["plasmid_X"].alignments[0].target_end == 100
 
 
-def test_visualize_api_respects_top_refs_and_writes_sidecar(tmp_path: Path) -> None:
+def test_visualize_api_respects_top_refs_and_attaches_visualization(
+    tmp_path: Path,
+) -> None:
     result = _screen_with_hits(
         {
             "read_a": (_hit("plasmid_X", query_id="read_a", target_start=0, target_end=100),),
@@ -151,12 +153,17 @@ def test_visualize_api_respects_top_refs_and_writes_sidecar(tmp_path: Path) -> N
         SampleReferenceRank(accession_id="plasmid_X", n_reads=1, sum_bitscore=100.0),
     )
     viz = visualize_engineered_mappings(
-        result, tmp_path / "viz", fetch_genbank=False, write_json=True
+        result, tmp_path / "viz", fetch_genbank=False
     )
-    assert viz.report_json_path is not None and viz.report_json_path.is_file()
+    assert not (tmp_path / "viz" / "visualization_report.json").exists()
     assert {m.accession_id for m in viz.engineered_mapping_hits} == {"plasmid_X"}
     assert all(p.name.startswith("pileup_plasmid_X") for p in viz.pileup_paths)
     assert result.engineered_mapping_hits == viz.engineered_mapping_hits
+    assert result.visualization is viz
+    by_id = {r.read_id: r for r in result.per_read}
+    assert by_id["read_a"].matched_plasmid == "plasmid_X"
+    assert by_id["read_a"].match_target_start == 0
+    assert by_id["read_a"].match_target_end == 100
 
 
 def test_render_plasmid_pileup_builds_figure() -> None:

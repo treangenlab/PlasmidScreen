@@ -11,7 +11,7 @@ from Bio.Data import CodonTable
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
-# Perseus disabled for now — exclude until the bridge is re-enabled.
+# Perseus disabled — skip local test_perseus.py if present (gitignored).
 collect_ignore = [
     "test_perseus.py",
 ]

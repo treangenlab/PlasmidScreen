@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -780,6 +780,101 @@ def write_plasmid_pileups(
     return written
 
 
+def _load_annotations_for_accessions(
+        accession_ids: Iterable[str],
+        *,
+        genbank_path: str | Path | None = None,
+        annotations_by_accession: Mapping[str, Sequence[PlasmidAnnotation]] | None = None,
+        fetch_genbank: bool = False,
+        genbank_cache_dir: str | Path | None = None,
+        ncbi_api_key: str | None = None,
+) -> dict[str, list[PlasmidAnnotation]]:
+    """Merge optional GenBank file + local cache (+ optional NCBI fetch)."""
+    ann_map: dict[str, list[PlasmidAnnotation]] = {}
+    if genbank_path is not None:
+        ann_map.update(
+            {key: list(vals) for key, vals in load_genbank_annotations(genbank_path).items()}
+        )
+    if annotations_by_accession:
+        for key, vals in annotations_by_accession.items():
+            ann_map[key] = list(vals)
+
+    from plasmidScreen.lib.genbank_fetch import annotations_for_hit_ids
+
+    cached_or_fetched = annotations_for_hit_ids(
+        accession_ids,
+        cache_dir=genbank_cache_dir,
+        api_key=ncbi_api_key,
+        fetch=fetch_genbank,
+    )
+    for key, vals in cached_or_fetched.items():
+        ann_map.setdefault(key, list(vals))
+    return ann_map
+
+
+def annotate_screen_result_overlapping_features(
+        screen_result: ScreenResult,
+        *,
+        genbank_path: str | Path | None = None,
+        annotations_by_accession: Mapping[str, Sequence[PlasmidAnnotation]] | None = None,
+        fetch_genbank: bool = False,
+        genbank_cache_dir: str | Path | None = None,
+        ncbi_api_key: str | None = None,
+) -> ScreenResult:
+    """
+    Fill ``ReadFlagDetail.overlapping_features`` from the primary BLAST interval.
+
+    Uses the local GenBank cache by default (same source as pileup tracks).
+    Call after :func:`map_engineered_reads` enrichment so report columns include
+    features without requiring visualization.
+    """
+    accessions = {
+        detail.matched_plasmid
+        for detail in screen_result.per_read
+        if detail.matched_plasmid
+    }
+    if not accessions:
+        return screen_result
+
+    ann_map = _load_annotations_for_accessions(
+        accessions,
+        genbank_path=genbank_path,
+        annotations_by_accession=annotations_by_accession,
+        fetch_genbank=fetch_genbank,
+        genbank_cache_dir=genbank_cache_dir,
+        ncbi_api_key=ncbi_api_key,
+    )
+    if not ann_map:
+        logger.info(
+            "No GenBank annotations available for overlapping features "
+            "(%d accession(s)); leave Overlapping_Features empty.",
+            len(accessions),
+        )
+        return screen_result
+
+    updated: list[ReadFlagDetail] = []
+    changed = False
+    for detail in screen_result.per_read:
+        summary = detail.database_match_summary
+        if summary is None or summary.target_start is None or summary.target_end is None:
+            updated.append(detail)
+            continue
+        start = min(summary.target_start, summary.target_end)
+        end = max(summary.target_start, summary.target_end)
+        annots = _dedupe_annotations(
+            _annotations_for_accession(summary.accession_id, ann_map)
+        )
+        feats = tuple(_genes_covered_by_span(annots, start, end))
+        if feats != detail.overlapping_features:
+            updated.append(replace(detail, overlapping_features=feats))
+            changed = True
+        else:
+            updated.append(detail)
+    if changed:
+        screen_result.per_read = updated
+    return screen_result
+
+
 def create_pile_ups(
         screen_result: ScreenResult,
         visualize_path: str | Path,
@@ -821,29 +916,16 @@ def create_pile_ups(
         logger.info("No database_match_hits available; skipping pileups.")
         return []
 
-    ann_map: dict[str, list[PlasmidAnnotation]] = {}
-    if genbank_path is not None:
-        ann_map.update(
-            {key: list(vals) for key, vals in load_genbank_annotations(genbank_path).items()}
-        )
-    if annotations_by_accession:
-        for key, vals in annotations_by_accession.items():
-            ann_map[key] = list(vals)
-
-    # Always consult the local GenBank cache (fill via prefetch-genbank).
-    # ``fetch_genbank`` is off by default; True enables on-demand NCBI.
-    from plasmidScreen.lib.genbank_fetch import annotations_for_hit_ids
-
-    cached_or_fetched = annotations_for_hit_ids(
+    ann_map = _load_annotations_for_accessions(
         hits_by_plasmid.keys(),
-        cache_dir=genbank_cache_dir,
-        api_key=ncbi_api_key,
-        fetch=fetch_genbank,
+        genbank_path=genbank_path,
+        annotations_by_accession=annotations_by_accession,
+        fetch_genbank=fetch_genbank,
+        genbank_cache_dir=genbank_cache_dir,
+        ncbi_api_key=ncbi_api_key,
     )
-    for key, vals in cached_or_fetched.items():
-        ann_map.setdefault(key, list(vals))
 
-    # Viz-only: attach the same intervals / features the figures show.
+    # Attach mapping summaries used by figures / ScreenResult.visualization.
     screen_result.engineered_mapping_hits = build_engineered_mapping_hits(
         reads,
         annotations_by_accession=ann_map or None,

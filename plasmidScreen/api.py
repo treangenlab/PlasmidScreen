@@ -6,7 +6,7 @@ built offline with :func:`build_codon_reference` or :func:`build_codon_database`
 
 Optional post-screen steps:
 - :func:`map_engineered_reads` — blastn enrichment (top references on ``ScreenResult``)
-- :func:`visualize_engineered_mappings` — pileups + mapping JSON (viz mode only)
+- :func:`visualize_engineered_mappings` — pileups + mapping summaries (viz mode only)
 - :func:`map_and_visualize_engineered` — convenience chain of the two above
 - :func:`screen_result_from_engineered_report` — rebuild a minimal ``ScreenResult``
   from a written engineered-report TSV (for standalone viz CLI / reruns)
@@ -16,7 +16,6 @@ Optional post-screen steps:
 from __future__ import annotations
 
 import csv
-import json
 from pathlib import Path
 from typing import Iterable, Literal
 
@@ -98,7 +97,6 @@ def run_screen(
     binomial p-value is ≤ ``pvalue_alpha`` (default 0.05; null rate ``background_rate``).
     Codon CAI runs on reads that are **not** k-mer engineered after that gate
     (insignificant window hits remain eligible for CAI).
-    (Perseus Natural-read reclassification is currently disabled.)
 
     Parameters
     ----------
@@ -109,7 +107,9 @@ def run_screen(
     kraken_db
         Kraken2 database directory (required when ``run_kraken=True``).
     engineered_report_path
-        If set, writes the engineered k-mer scan TSV to this path.
+        If set, writes the engineered-call TSV to this path (Label / Methods /
+        P-Value / coverage, plus Plasmid / coords / identity / score /
+        overlapping-feature columns filled after map/viz).
     kraken_output_path
         Save or load raw Kraken2 classifications (required when ``run_kraken=False`` or
         when ``debug_write_kraken_output=True``).
@@ -241,17 +241,27 @@ def map_engineered_reads(
         run_blast: bool = True,
         blastn_binary: str = "blastn",
         blast_task: str = "blastn",
+        genbank_path: str | Path | None = None,
+        fetch_genbank: bool = False,
+        genbank_cache_dir: str | Path | None = None,
+        ncbi_api_key: str | None = None,
 ) -> ScreenResult:
     """
     BLAST engineered reads against a nucleotide reference and attach top hits.
 
-    Updates ``ScreenResult`` with per-read ``database_match_*`` fields and
-    sample-wide ``top_engineered_references``. Does **not** generate pileups or
-    ``engineered_mapping_hits`` — call :func:`visualize_engineered_mappings` for that.
+    Updates ``ScreenResult`` with per-read ``database_match_*`` fields,
+    sample-wide ``top_engineered_references``, and primary-hit
+    ``overlapping_features`` from the local GenBank cache (or optional fetch).
+    Rewrites the engineered TSV when ``engineered_report_path`` is set. Does
+    **not** write pileups — call :func:`visualize_engineered_mappings` for that.
     """
+    from plasmidScreen.lib.engineered_report import rewrite_engineered_report_if_present
     from plasmidScreen.src.post_hit_analysis import post_analysis_report
+    from plasmidScreen.src.visualization_code import (
+        annotate_screen_result_overlapping_features,
+    )
 
-    return post_analysis_report(
+    enriched = post_analysis_report(
         screen_result,
         query_fasta=query_fasta,
         reference_db=reference_db,
@@ -265,6 +275,15 @@ def map_engineered_reads(
         blastn_binary=blastn_binary,
         blast_task=blast_task,
     )
+    annotate_screen_result_overlapping_features(
+        enriched,
+        genbank_path=genbank_path,
+        fetch_genbank=fetch_genbank,
+        genbank_cache_dir=genbank_cache_dir,
+        ncbi_api_key=ncbi_api_key,
+    )
+    rewrite_engineered_report_if_present(enriched)
+    return enriched
 
 
 def visualize_engineered_mappings(
@@ -276,21 +295,25 @@ def visualize_engineered_mappings(
         genbank_cache_dir: str | Path | None = None,
         ncbi_api_key: str | None = None,
         dpi: int = 180,
-        write_json: bool = True,
 ) -> VisualizationReport:
     """
-    Optional viz mode: pileup figures + mapping summaries for top engineered refs.
+    Optional viz mode: write pileup PNGs for top engineered references.
 
     Uses ``screen_result.top_engineered_references`` (from
-    :func:`map_engineered_reads`) when present. Writes PNGs under ``output_dir``,
-    attaches ``engineered_mapping_hits`` on ``screen_result``, and optionally
-    writes a sidecar JSON mapping summary.
+    :func:`map_engineered_reads`) when present. Writes PNGs under ``output_dir``
+    and attaches ``engineered_mapping_hits`` / ``visualization`` on
+    ``screen_result``. Overlapping features are normally filled by map; this
+    step refreshes them when GenBank annotations are available here.
 
     GenBank feature tracks come from the local cache by default (see
     :func:`prefetch_genbank_from_fasta`). On-demand NCBI fetch is off unless
     ``fetch_genbank=True``.
     """
-    from plasmidScreen.src.visualization_code import create_pile_ups
+    from plasmidScreen.lib.engineered_report import rewrite_engineered_report_if_present
+    from plasmidScreen.src.visualization_code import (
+        annotate_screen_result_overlapping_features,
+        create_pile_ups,
+    )
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -305,67 +328,24 @@ def visualize_engineered_mappings(
         dpi=dpi,
         engineered_only=True,
     )
+    # Refresh features if map ran without cache but viz has annotations.
+    annotate_screen_result_overlapping_features(
+        screen_result,
+        genbank_path=genbank_path,
+        fetch_genbank=fetch_genbank,
+        genbank_cache_dir=genbank_cache_dir,
+        ncbi_api_key=ncbi_api_key,
+    )
 
-    report_json_path: Path | None = None
-    if write_json:
-        report_json_path = out / "visualization_report.json"
-        payload = {
-            "top_engineered_references": [
-                {
-                    "accession_id": r.accession_id,
-                    "n_reads": r.n_reads,
-                    "sum_bitscore": r.sum_bitscore,
-                }
-                for r in screen_result.top_engineered_references
-            ],
-            "engineered_mapping_hits": [
-                {
-                    "accession_id": m.accession_id,
-                    "target_length": m.target_length,
-                    "n_queries": m.n_queries,
-                    "n_alignments": m.n_alignments,
-                    "query_ids": list(m.query_ids),
-                    "covered_bp": m.covered_bp,
-                    "mean_coverage": m.mean_coverage,
-                    "max_coverage": m.max_coverage,
-                    "alignments": [
-                        {
-                            "query_id": a.query_id,
-                            "target_start": a.target_start,
-                            "target_end": a.target_end,
-                            "sequence_identity": a.sequence_identity,
-                            "match_score": a.match_score,
-                            "overlapping_features": list(a.overlapping_features),
-                        }
-                        for a in m.alignments
-                    ],
-                    "features": [
-                        {
-                            "label": f.label,
-                            "feature_type": f.feature_type,
-                            "start": f.start,
-                            "end": f.end,
-                            "strand": f.strand,
-                        }
-                        for f in m.features
-                    ],
-                }
-                for m in screen_result.engineered_mapping_hits
-            ],
-            "pileups": [str(p) for p in pileup_paths],
-            "reference_database_source": screen_result.reference_database_source,
-        }
-        report_json_path.write_text(
-            json.dumps(payload, indent=2), encoding="utf-8"
-        )
-
-    return VisualizationReport(
+    viz = VisualizationReport(
         output_dir=out,
         pileup_paths=tuple(pileup_paths),
         engineered_mapping_hits=screen_result.engineered_mapping_hits,
         top_engineered_references=screen_result.top_engineered_references,
-        report_json_path=report_json_path,
     )
+    screen_result.visualization = viz
+    rewrite_engineered_report_if_present(screen_result)
+    return viz
 
 
 def map_and_visualize_engineered(
@@ -388,7 +368,6 @@ def map_and_visualize_engineered(
         genbank_cache_dir: str | Path | None = None,
         ncbi_api_key: str | None = None,
         dpi: int = 180,
-        write_json: bool = True,
 ) -> tuple[ScreenResult, VisualizationReport]:
     """
     BLAST-enrich engineered reads, then write pileup figures / mapping summaries.
@@ -411,6 +390,10 @@ def map_and_visualize_engineered(
         run_blast=run_blast,
         blastn_binary=blastn_binary,
         blast_task=blast_task,
+        genbank_path=genbank_path,
+        fetch_genbank=fetch_genbank,
+        genbank_cache_dir=genbank_cache_dir,
+        ncbi_api_key=ncbi_api_key,
     )
     viz = visualize_engineered_mappings(
         enriched,
@@ -420,7 +403,6 @@ def map_and_visualize_engineered(
         genbank_cache_dir=genbank_cache_dir,
         ncbi_api_key=ncbi_api_key,
         dpi=dpi,
-        write_json=write_json,
     )
     return enriched, viz
 

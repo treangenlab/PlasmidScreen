@@ -486,33 +486,15 @@ class Workflow:
     def write_screen_result(self, per_read: List[ReadFlagDetail]) -> None:
         if self.report_output_path is None:
             return
-        header = "Label\tRead_ID\tMethods\tP-Value\tEng-Coverage Percentage"
+        from plasmidScreen.lib.engineered_report import write_engineered_report
+
         try:
-            self.report_output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.report_output_path, "w", encoding="utf-8") as write_obj:
-                write_obj.write(header + "\n")
-                for read in per_read:
-                    if read.engineered_overall:
-                        line = "Engineered\t"
-                    else:
-                        line = "Natural\t"
-                    line += read.read_id + "\t"
-                    methods = read.engineered_methods
-                    line += ",".join(methods) if methods else "NA"
-                    line += "\t" + str(read.p_value)
-                    coverage = (
-                        read.eng_kmer_coverage
-                        if read.eng_kmer_coverage is not None
-                        else 0.0
-                    )
-                    line += "\t" + f"{coverage:.2%}"
-                    write_obj.write(line + "\n")
+            write_engineered_report(self.report_output_path, per_read)
         except OSError as exc:
             logging.error("Failed to write report %s: %s", self.report_output_path, exc)
             raise InputError(
                 f"Could not write engineered report {self.report_output_path}: {exc}"
             ) from exc
-        logging.info("Wrote engineered report to %s", self.report_output_path)
 
     # Perseus disabled for now — re-enable with the import and constructor fields above.
     # def run_perseus_on_natural(

@@ -204,13 +204,24 @@ window-only `EngineeredScanResult` labels).
 | Methods | string | Contributing methods (`engineered_kmer_scan`, `codon_cai`, …) or `NA` |
 | P-Value | float | Binomial p-value for engineered k-mer count vs `--bg` |
 | Eng-Coverage Percentage | percent string | Fraction of mapped k-mers that are engineered (e.g. `5.80%`) |
+| Plasmid | string | Primary BLAST accession (best bitscore), or `NA` until map/viz |
+| Target_Start | int \| `NA` | Alignment start on that plasmid |
+| Target_End | int \| `NA` | Alignment end on that plasmid |
+| Sequence_Identity | float \| `NA` | Percent identity of the primary hit |
+| Match_Score | float \| `NA` | Primary hit match score (blastn bitscore) |
+| Overlapping_Features | string \| `NA` | GenBank feature labels overlapped by the primary hit (after map) |
 
-**Example**
+Screen writes the first five columns immediately; `--map-hits` (and
+`--visualize`, which implies map) rewrites the same path to fill BLAST columns
+and overlapping features from the local GenBank cache. Visualization only adds
+pileup PNGs.
+
+**Example** (after `--visualize`)
 
 ```text
-Label	Read_ID	Methods	P-Value	Eng-Coverage Percentage
-Natural	read_natural_1	NA	1.0	0.00%
-Engineered	read_synthetic_1	engineered_kmer_scan	1.2e-10	14.75%
+Label	Read_ID	Methods	P-Value	Eng-Coverage Percentage	Plasmid	Target_Start	Target_End	Sequence_Identity	Match_Score	Overlapping_Features
+Natural	read_natural_1	NA	1.0	0.00%	NA	NA	NA	NA	NA	NA
+Engineered	read_synthetic_1	engineered_kmer_scan	1.2e-10	14.75%	MK178573.1	5846	8105	99.115	3995	AmpR,ColE1 origin
 ```
 
 ### 3.2 Codon usage report (TSV)
@@ -243,7 +254,9 @@ read_natural_1	+	0-99	562	562	99	0.7234
 
 Produced in **`ScreenResult`** / **`ReadFlagDetail`**. The engineered report TSV
 `Label` column is this overall call (`Engineered` / `Natural`), not the window-only
-scan label.
+scan label. After `--map-hits` / `--visualize`, the same TSV also carries the
+primary BLAST hit (`Plasmid`, coords, identity, score) and overlapping GenBank
+feature labels from the local cache (see §3.1). Visualization adds pileup PNGs.
 
 For each read in `per_read`:
 
@@ -256,8 +269,6 @@ engineered_overall =
 `engineered_by_kmer_scan` is True only when the window threshold is met **and** the
 binomial p-value is ≤ `PVALUE_ALPHA` (default 0.05). Higher p-values reassign the
 read as Natural for the k-mer component (CAI may still flag it).
-
-(Perseus is currently disabled; `engineered_by_perseus` remains on the model but is unused.)
 
 | Field | Meaning |
 |-------|---------|
@@ -295,16 +306,29 @@ Use `compute_engineered_overall()` from the library to apply the same rule outsi
 | `overall_natural_count` | int (property) | Reads with `engineered_overall=False` |
 | `engineered_read_ids` | set[str] (property) | IDs classified engineered overall |
 | `natural_read_ids_overall` | set[str] (property) | IDs classified natural overall |
-| `engineered_report_path` | `Path \| None` | Written engineered report (k-mer labels only) |
+| `engineered_report_path` | `Path \| None` | Written engineered report (match columns filled after map/viz) |
 | `codon_usage_report_path` | `Path \| None` | Written codon TSV |
 | `diamond_output_path` | `Path \| None` | Saved or loaded DIAMOND TSV path |
 | `top_engineered_references` | `tuple[SampleReferenceRank, ...]` | Filled by `map_engineered_reads` |
 | `engineered_mapping_hits` | `tuple[EngineeredMappingHit, ...]` | Filled by `visualize_engineered_mappings` |
+| `visualization` | `VisualizationReport \| None` | Attached when viz mode runs |
 | `reference_database_source` | `str \| None` | Label for the blastn subject DB |
+
+Per-read primary BLAST / feature fields (on each ``ReadFlagDetail``):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `matched_plasmid` | `str \| None` (property) | Primary BLAST accession |
+| `match_target_start` / `match_target_end` | `int \| None` (properties) | Alignment coords |
+| `match_sequence_identity` | `float \| None` (property) | Percent identity |
+| `match_score` | `float \| None` (property) | Primary hit score (bitscore) |
+| `overlapping_features` | `tuple[str, ...]` | GenBank labels overlapped by primary hit (after map) |
 
 #### `VisualizationReport`
 
-Returned by `visualize_engineered_mappings` / `map_and_visualize_engineered`.
+Returned by `visualize_engineered_mappings` / `map_and_visualize_engineered`, and
+attached to ``ScreenResult.visualization`` when visualization is enabled.
+Primary BLAST / feature columns live on ``ReadFlagDetail`` and the engineered TSV.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -312,7 +336,6 @@ Returned by `visualize_engineered_mappings` / `map_and_visualize_engineered`.
 | `pileup_paths` | `tuple[Path, ...]` | Written figure paths |
 | `engineered_mapping_hits` | `tuple[EngineeredMappingHit, ...]` | Per-plasmid mapping summaries |
 | `top_engineered_references` | `tuple[SampleReferenceRank, ...]` | Ranked references used for viz |
-| `report_json_path` | `Path \| None` | Sidecar `visualization_report.json` |
 
 #### `CodonAdaptationResult`
 
@@ -351,8 +374,6 @@ Per-read attribution and evidence for engineered calls.
 | `engineered_by_codon_cai` | bool \| None | `True` if CAI &gt; threshold; `False` if at/below; `None` if threshold unset or no CAI |
 | `engineered_overall` | bool | Combined decision (see §3.4) |
 | `overall_label` | `"Natural"` \| `"Synthetic"` | Human-readable combined label |
-| `engineered_by_perseus` | bool \| None | Unused (Perseus currently disabled) |
-| `perseus_taxid` | int \| None | Unused (Perseus currently disabled) |
 | `engineered_methods` | list[str] (property) | Contributing methods: `engineered_kmer_scan`, `codon_cai` |
 | `engineered_any` | bool (property) | Alias for `engineered_overall` |
 
@@ -473,6 +494,7 @@ prefetch-genbank REFERENCE_FASTA
 ### `visualize` arguments
 
 Standalone map + pileups from a prior engineered report (no Kraken/DIAMOND rerun).
+Remaps (filling BLAST / feature columns; see §3.1) then writes pileup PNGs.
 Feature tracks are loaded from the GenBank cache (see `prefetch-genbank`):
 
 ```text

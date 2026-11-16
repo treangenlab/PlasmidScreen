@@ -53,11 +53,12 @@ class DiamondError(PlasmidScreenError):
         super().__init__(f"DIAMOND failed with exit code {returncode}{detail}")
 
 
-class PerseusError(PlasmidScreenError):
-    """Raised when the Perseus subprocess fails or is unavailable."""
-
-    def __init__(self, returncode: int, stderr: str | None = None) -> None:
-        self.returncode = returncode
-        self.stderr = stderr or ""
-        detail = f" (stderr: {self.stderr.strip()})" if self.stderr.strip() else ""
-        super().__init__(f"Perseus failed with exit code {returncode}{detail}")
+# Perseus disabled — re-enable with lib/perseus.py
+# class PerseusError(PlasmidScreenError):
+#     """Raised when the Perseus subprocess fails or is unavailable."""
+#
+#     def __init__(self, returncode: int, stderr: str | None = None) -> None:
+#         self.returncode = returncode
+#         self.stderr = stderr or ""
+#         detail = f" (stderr: {self.stderr.strip()})" if self.stderr.strip() else ""
+#         super().__init__(f"Perseus failed with exit code {returncode}{detail}")

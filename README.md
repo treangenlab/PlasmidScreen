@@ -88,6 +88,17 @@ screen_result, viz = map_and_visualize_engineered(
 # Or stepwise: map_engineered_reads(...) then visualize_engineered_mappings(...)
 print(screen_result.top_engineered_references)
 print(viz.pileup_paths)
+assert screen_result.visualization is viz
+for r in screen_result.per_read_engineered:
+    print(
+        r.read_id,
+        r.matched_plasmid,
+        r.match_target_start,
+        r.match_target_end,
+        r.match_sequence_identity,
+        r.match_score,
+        r.overlapping_features,
+    )
 ```
 
 ### CLI — build reference (network required)
@@ -180,6 +191,35 @@ plasmidscreen screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage \
   --map-hits --reference-db /path/to/plasmids.fa
 ```
 
+#### Engineered report TSV (`report.txt`)
+
+Written at the end of `screen`. Columns:
+
+| Column | Meaning |
+|--------|---------|
+| `Label` | Overall call (`Engineered` / `Natural`) |
+| `Read_ID` | Read identifier |
+| `Methods` | Contributing methods (`engineered_kmer_scan`, `codon_cai`, …) or `NA` |
+| `P-Value` | Binomial p-value for engineered k-mer count vs `--bg` |
+| `Eng-Coverage Percentage` | Fraction of mapped k-mers that are engineered |
+| `Plasmid` | Primary BLAST accession (best bitscore), or `NA` until map/viz |
+| `Target_Start` / `Target_End` | Alignment coords on that plasmid, or `NA` |
+| `Sequence_Identity` | Percent identity of the primary hit, or `NA` |
+| `Match_Score` | Primary hit score (blastn bitscore), or `NA` |
+| `Overlapping_Features` | GenBank feature labels overlapped by the primary hit (after map; needs GenBank cache), or `NA` |
+
+Screen fills the first five columns immediately. `--map-hits` (or `--visualize`,
+which maps first) rewrites the same path to populate BLAST columns and
+overlapping features. Visualization only adds pileup PNGs under `--viz-dir`.
+
+Example after `--visualize`:
+
+```text
+Label	Read_ID	Methods	P-Value	Eng-Coverage Percentage	Plasmid	Target_Start	Target_End	Sequence_Identity	Match_Score	Overlapping_Features
+Natural	read_natural_1	NA	1.0	0.00%	NA	NA	NA	NA	NA	NA
+Engineered	read_synthetic_1	engineered_kmer_scan	1.2e-10	14.75%	MK178573.1	5846	8105	99.115	3995	AmpR,ColE1 origin
+```
+
 ### CLI — prefetch GenBank (networked, once)
 
 Pileup feature tracks read a **local GenBank cache** only. Prefill it from the
@@ -208,7 +248,11 @@ plasmidscreen visualize reads.fa report.txt /path/to/plasmids.fa viz_out \
 
 Outputs under `--viz-dir` / `viz_out`:
 - `*.png` pileup figures for top references
-- `visualization_report.json` mapping summaries
+
+Also remaps and rewrites the engineered report TSV (same path as the prior
+`screen` run) with BLAST / feature columns, then writes pileups. Those fields
+are available on `ScreenResult.per_read` (`matched_plasmid`, `match_target_*`,
+`match_score`, `overlapping_features`).
 
 Library equivalents: `prefetch_genbank_from_fasta`, `map_engineered_reads`,
 `visualize_engineered_mappings`, `map_and_visualize_engineered`, and
@@ -216,7 +260,7 @@ Library equivalents: `prefetch_genbank_from_fasta`, `map_engineered_reads`,
 
 
 #### P-Value Documentation
-The report includes engineered k-mer coverage and a p-value for each read.
+The engineered report includes engineered k-mer coverage and a p-value for each read.
 The p-value estimates the probability of observing at least this many engineered
 k-mers by chance under a binomial null with background rate `--bg` (default 0.1%).
 A window-threshold Synthetic call is kept as engineered only when

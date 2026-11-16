@@ -220,7 +220,7 @@ def compute_engineered_overall(
     Combined engineered call for a read using thresholds active in ``run_screen``.
 
     Engineered if the k-mer scan flagged Synthetic, or codon CAI flagging is
-    enabled and CAI is above threshold. Perseus OR contribution is disabled.
+    enabled and CAI is above threshold.
     """
     if engineered_by_kmer_scan:
         return True
@@ -247,12 +247,15 @@ class ScreenResult:
     engineered_report_path: Optional[Path] = None
     codon_usage_report_path: Optional[Path] = None
     diamond_output_path: Optional[Path] = None
-    perseus_output_path: Optional[Path] = None
+    # Perseus disabled — field kept commented for re-enable.
+    # perseus_output_path: Optional[Path] = None
     reference_database_source: Optional[str] = None
     # Sample-wide top reference sequences (BLAST bitscore filter + read coverage rank).
     top_engineered_references: tuple[SampleReferenceRank, ...] = ()
     # Filled only when visualization mode runs (:func:`visualize_engineered_mappings`).
     engineered_mapping_hits: tuple[EngineeredMappingHit, ...] = ()
+    # Full viz artifact (pileup paths + mapping summaries); set when viz is enabled.
+    visualization: Optional["VisualizationReport"] = None
 
     @property
     def overall_engineered_read_count(self) -> int:
@@ -274,7 +277,7 @@ class ScreenResult:
 
     @property
     def engineered_read_ids(self) -> set[str]:
-        """Reads engineered overall (k-mer, Perseus, and/or CAI)."""
+        """Reads engineered overall (k-mer and/or CAI)."""
         return {r.read_id for r in self.per_read if r.engineered_overall}
 
     @property
@@ -286,10 +289,11 @@ class ScreenResult:
         """Reads with CAI above ``codon_cai_engineered_threshold`` (empty if unset)."""
         return {r.read_id for r in self.per_read if r.engineered_by_codon_cai}
 
-    @property
-    def perseus_engineered_read_ids(self) -> set[str]:
-        """Reads Perseus assigned to synthetic construct (taxid 32630)."""
-        return {r.read_id for r in self.per_read if r.engineered_by_perseus}
+    # Perseus disabled
+    # @property
+    # def perseus_engineered_read_ids(self) -> set[str]:
+    #     """Reads Perseus assigned to synthetic construct (taxid 32630)."""
+    #     return {r.read_id for r in self.per_read if r.engineered_by_perseus}
 
     @property
     def per_read_engineered(self) -> list["ReadFlagDetail"]:
@@ -314,15 +318,16 @@ class VisualizationReport:
     """
     Optional viz-mode artifact (pileups + mapping summaries).
 
-    Produced by :func:`plasmidScreen.api.visualize_engineered_mappings`; not part of
-    the default ``run_screen`` / enrichment return payload.
+    Produced by :func:`plasmidScreen.api.visualize_engineered_mappings` and attached
+    to ``ScreenResult.visualization`` when visualization is enabled. Also returned
+    directly from the viz API helpers. Primary BLAST / feature columns live on
+    ``ReadFlagDetail`` and the engineered TSV.
     """
 
     output_dir: Path
     pileup_paths: tuple[Path, ...] = ()
     engineered_mapping_hits: tuple[EngineeredMappingHit, ...] = ()
     top_engineered_references: tuple[SampleReferenceRank, ...] = ()
-    report_json_path: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -340,8 +345,9 @@ class ReadFlagDetail:
     cai_vs_host: Optional[float] = None
     engineered_by_codon_cai: Optional[bool] = None
     codon_cai_threshold: Optional[float] = None
-    engineered_by_perseus: Optional[bool] = None
-    perseus_taxid: Optional[int] = None
+    # Perseus disabled
+    # engineered_by_perseus: Optional[bool] = None
+    # perseus_taxid: Optional[int] = None
     p_value: Optional[float] = None
     eng_kmer_coverage: Optional[float] = None
     database_match_note: Optional[str] = None
@@ -349,6 +355,8 @@ class ReadFlagDetail:
     database_query_coverage: Optional[float] = None
     database_match_summary: Optional[QueryMatchConfidence] = None
     database_match_hits: tuple[QueryMatchConfidence, ...] = ()
+    # GenBank labels overlapped by the primary hit (filled during map-hits).
+    overlapping_features: tuple[str, ...] = ()
 
     @property
     def engineered_methods(self) -> list[str]:
@@ -364,3 +372,29 @@ class ReadFlagDetail:
     @property
     def has_database_match(self) -> bool:
         return self.database_match_summary is not None
+
+    @property
+    def matched_plasmid(self) -> Optional[str]:
+        """Primary BLAST accession (best bitscore), if mapped."""
+        summary = self.database_match_summary
+        return None if summary is None else summary.accession_id
+
+    @property
+    def match_target_start(self) -> Optional[int]:
+        summary = self.database_match_summary
+        return None if summary is None else summary.target_start
+
+    @property
+    def match_target_end(self) -> Optional[int]:
+        summary = self.database_match_summary
+        return None if summary is None else summary.target_end
+
+    @property
+    def match_sequence_identity(self) -> Optional[float]:
+        summary = self.database_match_summary
+        return None if summary is None else summary.sequence_identity
+
+    @property
+    def match_score(self) -> Optional[float]:
+        summary = self.database_match_summary
+        return None if summary is None else summary.match_score
