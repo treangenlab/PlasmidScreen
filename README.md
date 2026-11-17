@@ -177,7 +177,7 @@ plasmidscreen screen reads.fa report.txt /path/to/kraken/db \
 plasmidscreen screen reads.fa report.txt /path/to/kraken/db \
   --diamond-db /path/to/protein.dmnd \
   --codon-cai-threshold 0.6 \
-  --threshold 10
+  --threshold 15
 
 # Engineered k-mer scan only (no codon / DIAMOND; overall == k-mer labels)
 plasmidscreen screen reads.fa report.txt /path/to/kraken/db --skip-codon-usage
