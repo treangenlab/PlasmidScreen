@@ -24,6 +24,13 @@ def test_configure_logging_quiet_raises_level() -> None:
     assert logging.getLogger().level == logging.WARNING
 
 
+def test_configure_logging_verbose_enables_debug() -> None:
+    configure_logging(verbose=True, force=True)
+    assert logging.getLogger().level == logging.DEBUG
+    configure_logging(quiet=True, verbose=True, force=True)
+    assert logging.getLogger().level == logging.WARNING
+
+
 def test_open_text_maybe_gzip_missing_file(tmp_path: Path) -> None:
     with pytest.raises(InputError, match="not found"):
         with open_text_maybe_gzip(tmp_path / "missing.fa"):

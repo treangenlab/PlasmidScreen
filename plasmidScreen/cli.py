@@ -286,6 +286,14 @@ def screen(
                 help="Suppress progress bars and INFO logs (warnings/errors only).",
             ),
         ] = False,
+        verbose: Annotated[
+            bool,
+            typer.Option(
+                "--verbose",
+                "-v",
+                help="Show DEBUG logs (commands, timings, per-file writes).",
+            ),
+        ] = False,
         map_hits: Annotated[
             bool,
             typer.Option(
@@ -396,7 +404,9 @@ def screen(
         ] = None,
 ) -> None:
     """Screening of engineered sequences."""
-    configure_logging(quiet=quiet, force=True)
+    if quiet and verbose:
+        raise typer.BadParameter("use either --quiet or --verbose, not both")
+    configure_logging(quiet=quiet, verbose=verbose, force=True)
     if not run_kraken and not kraken_output_path:
         raise typer.BadParameter(
             "--kraken-output-path is required when --no-run-kraken is set"
@@ -648,9 +658,19 @@ def visualize(
                 help="Suppress INFO logs (warnings/errors only).",
             ),
         ] = False,
+        verbose: Annotated[
+            bool,
+            typer.Option(
+                "--verbose",
+                "-v",
+                help="Show DEBUG logs (commands, timings, per-file writes).",
+            ),
+        ] = False,
 ) -> None:
     """Map engineered reads from a prior screen report and write pileup visualizations."""
-    configure_logging(quiet=quiet, force=True)
+    if quiet and verbose:
+        raise typer.BadParameter("use either --quiet or --verbose, not both")
+    configure_logging(quiet=quiet, verbose=verbose, force=True)
     try:
         result = screen_result_from_engineered_report(
             engineered_report,
@@ -725,13 +745,23 @@ def prefetch_genbank(
                 help="Suppress INFO logs (warnings/errors only).",
             ),
         ] = False,
+        verbose: Annotated[
+            bool,
+            typer.Option(
+                "--verbose",
+                "-v",
+                help="Show DEBUG logs (commands, timings, per-file writes).",
+            ),
+        ] = False,
 ) -> None:
     """Download GenBank records for NCBI accessions in a reference FASTA into the local cache.
 
     Run this once (networked) before airgapped visualization. ``screen --visualize`` /
     ``visualize`` then overlay features from the cache without contacting NCBI.
     """
-    configure_logging(quiet=quiet, force=True)
+    if quiet and verbose:
+        raise typer.BadParameter("use either --quiet or --verbose, not both")
+    configure_logging(quiet=quiet, verbose=verbose, force=True)
     try:
         result = prefetch_genbank_from_fasta(
             reference_fasta,
@@ -806,9 +836,17 @@ def build(
             "-q",
             help="Suppress INFO logs (warnings/errors only).",
         ),
+        verbose: bool = typer.Option(
+            False,
+            "--verbose",
+            "-v",
+            help="Show DEBUG logs (commands, timings, per-file writes).",
+        ),
 ) -> None:
     """Build codon usage tables from the Codon Statistics Database for CAI scoring."""
-    configure_logging(quiet=quiet, force=True)
+    if quiet and verbose:
+        raise typer.BadParameter("use either --quiet or --verbose, not both")
+    configure_logging(quiet=quiet, verbose=verbose, force=True)
     data_dir = output_dir or default_codon_usage_dir()
     archive = csdb_archive or default_csdb_archive_path()
 

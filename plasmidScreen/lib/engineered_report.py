@@ -100,7 +100,7 @@ def write_engineered_report(
     for detail in per_read:
         lines.append(format_engineered_report_row(detail))
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    logger.info("Wrote engineered report to %s", out)
+    logger.debug("Wrote engineered report to %s", out)
     return out
 
 

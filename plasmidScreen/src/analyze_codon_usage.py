@@ -278,7 +278,7 @@ def analyze_codon_adaptation(
             os.close(tmp_fd)
             tmp_subset = Path(tmp_name)
             n_written = write_subset_reads(reads_path, include_read_ids, tmp_subset)
-            logging.info(
+            logging.debug(
                 "DIAMOND query subset: %d/%d requested read(s) written to temp file",
                 n_written,
                 len(include_read_ids),
@@ -337,7 +337,7 @@ def analyze_codon_adaptation(
                 pending.append((read_id, cds, host_taxid))
 
         if n_no_host or n_no_orf:
-            logging.info(
+            logging.debug(
                 "Codon CAI candidates: %d considered, %d pending; "
                 "skipped no-host=%d no-orf=%d",
                 n_seen,

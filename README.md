@@ -143,8 +143,9 @@ comprehensive DIAMOND database is recommended (e.g. UniRef100 with taxids).
 
 Input reads may be plain or gzip-compressed FASTA/FASTQ
 (`.fa`, `.fasta`, `.fq`, `.fastq`, and the same with `.gz`).
-By default the CLI logs progress at INFO; pass `--quiet` / `-q` to hide
-progress bars and INFO messages (warnings and errors still show).
+By default the CLI logs short progress milestones at INFO. Pass `--verbose` /
+`-v` for DEBUG detail (commands, timings, per-file writes), or `--quiet` /
+`-q` to hide progress bars and INFO messages (warnings and errors still show).
 
 Use `--seq-type 0` for long reads (Nanopore/PacBio-style) or `--seq-type 1`
 for short reads (default). Use `--mem-mode 0|1|2` to match available RAM for DIAMOND

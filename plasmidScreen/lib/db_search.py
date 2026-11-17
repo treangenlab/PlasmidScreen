@@ -319,7 +319,7 @@ def write_engineered_query_fasta(
         out.parent.mkdir(parents=True, exist_ok=True)
 
     SeqIO.write(records, str(out), "fasta")
-    logger.info(
+    logger.debug(
         "Wrote %d engineered quer(ies) for blastn to %s",
         len(records),
         out,
@@ -378,7 +378,7 @@ class BlastnReferenceSearchEngine(ReferenceSearchEngine):
         elapsed = time.perf_counter() - t0
         n_with_hits = sum(1 for m in ordered.values() if m.hits)
         n_hits = sum(len(m.hits) for m in ordered.values())
-        logger.info(
+        logger.debug(
             "blastn reference search finished in %.3fs: %d queries, "
             "%d with ≥1 retained hit, %d total hits, top_refs=%s "
             "(database=%s, min_bitscore=%.1f, top_n=%d)",
@@ -424,7 +424,7 @@ class BlastnReferenceSearchEngine(ReferenceSearchEngine):
             path = Path(cfg.output_path)
             if not path.is_file():
                 raise FileNotFoundError(f"blastn output not found: {path}")
-            logger.info("Loading reference-search blastn output from %s", path)
+            logger.debug("Loading reference-search blastn output from %s", path)
             return path.read_text(encoding="utf-8").splitlines()
 
         return run_blastn_alignment(
@@ -487,7 +487,7 @@ def run_blastn_alignment(
     else:
         cmd.extend(["-db", str(reference_db)])
 
-    logger.info("Running blastn reference search: %s", " ".join(cmd))
+    logger.debug("Running blastn reference search: %s", " ".join(cmd))
     t0 = time.perf_counter()
     if output_path is not None:
         out = Path(output_path)
@@ -495,13 +495,13 @@ def run_blastn_alignment(
         cmd.extend(["-out", str(out)])
         subprocess.run(cmd, check=True, capture_output=True, text=True)
         elapsed = time.perf_counter() - t0
-        logger.info("blastn wrote %s in %.3fs", out, elapsed)
+        logger.debug("blastn wrote %s in %.3fs", out, elapsed)
         return out.read_text(encoding="utf-8").splitlines()
 
     proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
     elapsed = time.perf_counter() - t0
     lines = proc.stdout.splitlines()
-    logger.info("blastn returned %d hit lines in %.3fs", len(lines), elapsed)
+    logger.debug("blastn returned %d hit lines in %.3fs", len(lines), elapsed)
     return lines
 
 

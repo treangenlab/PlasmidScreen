@@ -42,17 +42,12 @@ from plasmidScreen.lib.models import (
 )
 from plasmidScreen.lib.types import GeneSet
 from plasmidScreen.src.plasmidScreen import Workflow
-from plasmidScreen.lib.engineered_report import rewrite_engineered_report_if_present
 from plasmidScreen.src.post_hit_analysis import post_analysis_report
-from plasmidScreen.src.visualization_code import (
-    annotate_screen_result_overlapping_features,
-)
 from plasmidScreen.lib.engineered_report import rewrite_engineered_report_if_present
 from plasmidScreen.src.visualization_code import (
     annotate_screen_result_overlapping_features,
     create_pile_ups,
 )
-
 
 __all__ = [
     "build_codon_database",
@@ -92,11 +87,6 @@ def run_screen(
         diamond_output_path: str | Path | None = None,
         debug_write_diamond_output: bool = False,
         run_diamond: bool = True,
-        # Perseus disabled for now
-        # run_perseus: bool = False,
-        # perseus_db: str | Path | None = None,
-        # perseus_output_path: str | Path | None = None,
-        # debug_write_perseus_output: bool = False,
         quiet_mode: bool = True,
         memory_mode: int = 0,
         background_rate: float = BACKGROUND_RATE,
@@ -201,14 +191,7 @@ def run_screen(
             raise ValueError(
                 "diamond_output_path is required when debug_write_diamond_output=True."
             )
-    # Perseus disabled for now
-    # if run_perseus and perseus_db is None:
-    #     raise ValueError("perseus_db is required when run_perseus=True.")
-    # if debug_write_perseus_output and perseus_output_path is None:
-    #     raise ValueError(
-    #         "perseus_output_path is required when debug_write_perseus_output=True."
-    #     )
-    if not memory_mode in MEMORY_CONFIG.values():
+    if memory_mode not in MEMORY_CONFIG.values():
         raise ValueError("memory_mode was expecting a value between 0-2 where:"
                          "\nlow(0) <= 32GB  RAM "
                          "\nmedium(1) <= 64GB  RAM "
@@ -216,7 +199,7 @@ def run_screen(
     workflow = Workflow(
         fasta_file=str(fasta_file),
         seq_type=seq_type,
-        output_report_path= str(engineered_report_path) if engineered_report_path else None,
+        output_report_path=str(engineered_report_path) if engineered_report_path else None,
         kraken_db=str(kraken_db),
         threads=threads,
         kraken_raw_output=str(kraken_output_path) if kraken_output_path else None,
@@ -461,7 +444,7 @@ def screen_result_from_engineered_report(
                 if m.strip() and m.strip().upper() != "NA"
             }
             by_kmer = engineered and (
-                not methods or "engineered_kmer_scan" in methods
+                    not methods or "engineered_kmer_scan" in methods
             )
             # Prefer Methods when present; otherwise treat Engineered rows as k-mer.
             if engineered and not methods:

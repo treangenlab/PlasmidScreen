@@ -166,7 +166,7 @@ def resolve_diamond_lines(
         path = Path(output_path)
         if not path.is_file():
             raise InputError(f"DIAMOND output not found: {path}")
-        logging.info("Loading DIAMOND output from %s", path)
+        logging.debug("Loading DIAMOND output from %s", path)
         return read_diamond_output(path), path
 
     if diamond_db is None:
@@ -215,11 +215,11 @@ def run_diamond_blastx(
 
     technology_specific_commands = diamond_technology_flags(sequencing_technology)
     if sequencing_technology == 0:
-        logging.info(
+        logging.debug(
             "Running DIAMOND in long-read/ONT mode (--seq-type 0)."
         )
     else:
-        logging.info(
+        logging.debug(
             "Running DIAMOND in short-read mode (--seq-type 1)."
         )
 
@@ -253,12 +253,12 @@ def run_diamond_blastx(
             out = Path(output_path)
             out.parent.mkdir(parents=True, exist_ok=True)
             cmd.extend(["-o", str(out)])
-            logging.info("Running DIAMOND: %s", " ".join(cmd))
+            logging.debug("Running DIAMOND: %s", " ".join(cmd))
             subprocess.run(cmd, check=True, capture_output=True, text=True)
-            logging.info("DIAMOND output written to %s", out)
+            logging.debug("DIAMOND output written to %s", out)
             return read_diamond_output(out)
 
-        logging.info("Running DIAMOND: %s", " ".join(cmd))
+        logging.debug("Running DIAMOND: %s", " ".join(cmd))
         proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
         return proc.stdout.splitlines()
     except FileNotFoundError as exc:

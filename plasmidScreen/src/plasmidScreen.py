@@ -257,7 +257,7 @@ class Workflow:
             report_file_path = self.kraken_db.parent.joinpath("report.txt")
             cmd += ["--report", str(report_file_path)]
 
-        logging.info("Running the command: %s", " ".join(cmd))
+        logging.debug("Running the command: %s", " ".join(cmd))
 
         try:
             if self.debug_write_kraken_output:
@@ -278,7 +278,7 @@ class Workflow:
                 "Kraken2 failed (Code %s). Error details: %s", e.returncode, e.stderr
             )
             raise KrakenError(e.returncode, e.stderr) from e
-        logging.info("Kraken2 finished; classifications ready.")
+        logging.debug("Kraken2 finished; classifications ready.")
 
     @staticmethod
     def parse_and_run(

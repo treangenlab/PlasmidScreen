@@ -77,15 +77,18 @@ def group_hits_by_plasmid(
         reads: Iterable[ReadFlagDetail],
 ) -> dict[str, list[QueryMatchConfidence]]:
     """
-    Aggregate retained hit rows across reads by reference accession.
+    Aggregate primary alignments by reference accession.
 
-    Uses ``database_match_hits`` (all tiled alignments), not just the primary
-    ``database_match_summary``.
+    Uses ``database_match_summary`` only (same hit as the engineered report
+    Plasmid / coords / identity / score / Overlapping_Features columns), not
+    secondary HSPs in ``database_match_hits``.
     """
     by_plasmid: dict[str, list[QueryMatchConfidence]] = defaultdict(list)
     for read in reads:
-        for hit in read.database_match_hits:
-            by_plasmid[hit.accession_id].append(hit)
+        summary = read.database_match_summary
+        if summary is None:
+            continue
+        by_plasmid[summary.accession_id].append(summary)
     return dict(by_plasmid)
 
 
@@ -316,7 +319,7 @@ def load_genbank_annotations(
             if key:
                 by_key[key].extend(annotations)
 
-    logger.info(
+    logger.debug(
         "Loaded GenBank annotations from %s for %d accession key(s)",
         path,
         len(by_key),
@@ -487,7 +490,7 @@ def render_plasmid_pileup(
         dpi: int = 180,
 ):
     """
-    Draw GenBank features (top) and a classic one-row-per-query pileup (bottom).
+    Draw GenBank features (top) and one row per primary query alignment (bottom).
 
     Keeping alignments off the annotation map avoids the crowded stacked-arrow
     look when many reads hit the same plasmid. Returns a Matplotlib figure.
@@ -770,7 +773,7 @@ def write_plasmid_pileups(
         fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white")
         plt.close(fig)
         written.append(path)
-        logger.info(
+        logger.debug(
             "Wrote pileup for %s (%d hits, %d features) -> %s",
             accession_id,
             len(hits),
@@ -845,7 +848,7 @@ def annotate_screen_result_overlapping_features(
         ncbi_api_key=ncbi_api_key,
     )
     if not ann_map:
-        logger.info(
+        logger.debug(
             "No GenBank annotations available for overlapping features "
             "(%d accession(s)); leave Overlapping_Features empty.",
             len(accessions),
@@ -888,13 +891,15 @@ def create_pile_ups(
         ncbi_api_key: str | None = None,
 ) -> list[Path]:
     """
-    Aggregate all retained database hits by plasmid and write PNG pileups.
+    Write one PNG pileup per plasmid using each read's primary BLAST hit.
 
-    Optional ``genbank_path`` / ``annotations_by_accession`` overlays reference
-    features above the alignment tracks. By default, NCBI features are read only
-    from the local GenBank cache (fill it with ``prefetch_genbank_from_fasta`` /
-    ``plasmidscreen prefetch-genbank``). Set ``fetch_genbank=True`` only if you
-    intentionally want on-demand NCBI downloads during viz.
+    Intervals match the engineered report mapping columns (primary accession /
+    coords). Optional ``genbank_path`` / ``annotations_by_accession`` overlays
+    reference features above the alignment tracks. By default, NCBI features
+    are read only from the local GenBank cache (fill it with
+    ``prefetch_genbank_from_fasta`` / ``plasmidscreen prefetch-genbank``). Set
+    ``fetch_genbank=True`` only if you intentionally want on-demand NCBI
+    downloads during viz.
     """
     reads = (
         screen_result.per_read_engineered
@@ -913,7 +918,7 @@ def create_pile_ups(
             if acc in top_refs
         }
     if not hits_by_plasmid:
-        logger.info("No database_match_hits available; skipping pileups.")
+        logger.info("No primary database matches available; skipping pileups.")
         return []
 
     ann_map = _load_annotations_for_accessions(

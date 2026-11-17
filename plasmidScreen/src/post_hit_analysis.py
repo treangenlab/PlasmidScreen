@@ -53,7 +53,7 @@ def post_analysis_report(
         blast_task=blast_task,
     )
     engine = BlastnReferenceSearchEngine(config)
-    logger.info(
+    logger.debug(
         "Enriching ScreenResult (%d engineered reads) with blastn hits from %s",
         len(screen_result.engineered_read_ids),
         config.database_source or reference_db,

@@ -77,12 +77,20 @@ def _screen_with_hits(hits_by_read: dict[str, tuple[QueryMatchConfidence, ...]])
     )
 
 
-def test_group_hits_by_plasmid_aggregates_queries() -> None:
+def test_group_hits_by_plasmid_uses_primary_only() -> None:
     result = _screen_with_hits(
         {
             "read_a": (
+                # Primary (first) is plasmid_X; secondary HSP must not appear.
                 _hit("plasmid_X", query_id="read_a", target_start=10, target_end=200),
                 _hit("plasmid_Y", query_id="read_a", target_start=0, target_end=50),
+                _hit(
+                    "plasmid_X",
+                    query_id="read_a",
+                    target_start=500,
+                    target_end=600,
+                    match_score=10.0,
+                ),
             ),
             "read_b": (
                 _hit("plasmid_X", query_id="read_b", target_start=150, target_end=400),
@@ -90,9 +98,11 @@ def test_group_hits_by_plasmid_aggregates_queries() -> None:
         }
     )
     grouped = group_hits_by_plasmid(result.per_read_engineered)
-    assert set(grouped) == {"plasmid_X", "plasmid_Y"}
+    assert set(grouped) == {"plasmid_X"}
     assert {h.query_id for h in grouped["plasmid_X"]} == {"read_a", "read_b"}
-    assert len(grouped["plasmid_Y"]) == 1
+    assert len(grouped["plasmid_X"]) == 2
+    assert grouped["plasmid_X"][0].target_start == 10
+    assert grouped["plasmid_X"][0].target_end == 200
 
 
 def test_build_engineered_mapping_hits_mirrors_pileup() -> None:

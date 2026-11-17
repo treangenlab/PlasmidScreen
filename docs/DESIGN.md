@@ -216,8 +216,9 @@ window-only `EngineeredScanResult` labels).
 
 Screen writes the first five columns immediately; `--map-hits` (and
 `--visualize`, which implies map) rewrites the same path to fill BLAST columns
-and overlapping features from the local GenBank cache. Visualization only adds
-pileup PNGs.
+and overlapping features from the local GenBank cache. Visualization adds
+pileup PNGs that draw the same primary hit per read (one bar matching the
+report Plasmid / coords / features), not secondary BLAST HSPs.
 
 **Example** (after `--visualize`)
 

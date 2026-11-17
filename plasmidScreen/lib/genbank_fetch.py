@@ -222,7 +222,7 @@ def fetch_genbank_texts(
                 gb_path.write_text(record, encoding="utf-8")
                 found[nid] = record
             else:
-                logger.info("No GenBank record for %s; caching as missing", nid)
+                logger.debug("No GenBank record for %s; caching as missing", nid)
                 _mark_missing(cache, nid)
 
     return found
@@ -389,7 +389,7 @@ def annotations_for_hit_ids(
             resolved.append(r)
 
     if not resolved:
-        logger.info("No NCBI-resolvable reference IDs among pileup accessions.")
+        logger.debug("No NCBI-resolvable reference IDs among pileup accessions.")
         return {}
 
     by_ncbi = {r.ncbi_id for r in resolved}
@@ -427,7 +427,7 @@ def annotations_for_hit_ids(
         out.setdefault(r.ncbi_id, list(anns))
         out.setdefault(r.ncbi_id.split(".", 1)[0], list(anns))
 
-    logger.info(
+    logger.debug(
         "Prepared GenBank annotations for %d/%d resolvable hit accession(s)",
         sum(1 for r in resolved if r.hit_id in out),
         len(resolved),
