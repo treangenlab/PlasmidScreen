@@ -632,7 +632,7 @@ def visualize(
                 "--threshold",
                 help="K-mer threshold recorded on reconstructed ScreenResult metadata.",
             ),
-        ] = 10,
+        ] = 20,
         window_size: Annotated[
             int,
             typer.Option(

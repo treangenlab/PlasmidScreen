@@ -55,11 +55,7 @@ class HitFilterConfig:
     min_bitscore: float = 50.0
     top_n_references: int = 5
     max_evalue: Optional[float] = None
-    # Alias for top_n_references used by some callers.
-    top_n: int = 5
     min_identity: float = 0.0
-    tile_along_query: bool = False
-    min_cover_gain_bp: int = 15
 
 
 @dataclass
@@ -78,18 +74,10 @@ class ReferenceSearchConfig:
 
 @dataclass(frozen=True)
 class QueryReferenceMatch:
-    """Retained alignments plus a primary summary for one query sequence."""
+    """Retained alignments plus a primary (best-bitscore) hit for one query."""
 
     hits: tuple[QueryMatchConfidence, ...] = ()
     summary: Optional[QueryMatchConfidence] = None
-
-    @property
-    def confidence(self) -> Optional[float]:
-        return None if self.summary is None else self.summary.confidence
-
-    @property
-    def query_coverage(self) -> Optional[float]:
-        return None if self.summary is None else self.summary.query_coverage
 
 
 @dataclass(frozen=True)
@@ -194,7 +182,7 @@ def filter_significant_hits(
 
 
 def _top_n_references(cfg: HitFilterConfig) -> int:
-    return cfg.top_n_references if cfg.top_n_references > 0 else cfg.top_n
+    return max(0, cfg.top_n_references)
 
 
 def rank_sample_references(
@@ -240,234 +228,18 @@ def rank_sample_references(
 def make_primary_summary(
         selected_hits: Sequence[QueryMatchConfidence],
 ) -> QueryMatchConfidence | None:
-    """Build a simple primary summary from the best-bitscore retained hit."""
+    """Return the best-bitscore retained hit (primary alignment)."""
     if not selected_hits:
         return None
-    primary = max(
+    return max(
         selected_hits,
         key=lambda h: (_bitscore_of(h), h.sequence_identity or 0.0),
     )
-    qlen = 0
-    for hit in selected_hits:
-        meta_len = (hit.functional_metadata or {}).get("query_length")
-        if isinstance(meta_len, int) and meta_len > qlen:
-            qlen = meta_len
-        if hit.query_end is not None:
-            qlen = max(qlen, hit.query_end)
-    covered_bp = covered_query_bases(selected_hits, qlen) if qlen else 0
-    coverage = min(1.0, covered_bp / qlen) if qlen else 0.0
-    return QueryMatchConfidence(
-        accession_id=primary.accession_id,
-        database_source=primary.database_source,
-        match_score=primary.match_score,
-        sequence_identity=primary.sequence_identity,
-        query_id=primary.query_id,
-        evalue=primary.evalue,
-        bitscore=primary.bitscore,
-        alignment_length=primary.alignment_length,
-        query_start=primary.query_start,
-        query_end=primary.query_end,
-        mapq=primary.mapq,
-        target_start=primary.target_start,
-        target_end=primary.target_end,
-        target_length=primary.target_length,
-        functional_metadata=dict(primary.functional_metadata),
-        confidence=1.0,
-        query_coverage=coverage,
-        covered_bp=covered_bp,
-        query_length_bp=qlen,
-        mean_identity=primary.sequence_identity or 0.0,
-        uniqueness=1.0,
-        meets_mapping=True,
-        n_accessions=len({h.accession_id for h in selected_hits}),
-        n_hits=len(selected_hits),
-        features={"bitscore": _bitscore_of(primary), "coverage": coverage},
-    )
-
-
-def _hit_sort_key(hit: QueryMatchConfidence) -> tuple[float, float, float]:
-    return (
-        -hit.match_score,
-        -(hit.mapq or 0),
-        -(hit.sequence_identity or 0.0),
-    )
-
-
-def select_best_hits(
-        hits: Sequence[QueryMatchConfidence],
-        config: HitFilterConfig | None = None,
-        *,
-        query_length_bp: int | None = None,
-) -> list[QueryMatchConfidence]:
-    """
-    Filter and rank hits for a single query sequence.
-
-    When ``tile_along_query`` is True (default), greedily retains hits that
-    cover newly uncovered query bases so mosaic queries are represented.
-    """
-    cfg = config or HitFilterConfig()
-    if cfg.top_n <= 0:
-        return []
-
-    kept = filter_significant_hits(hits, cfg)
-    if not kept:
-        return []
-
-    if cfg.tile_along_query:
-        return select_tiling_hits(
-            kept,
-            top_n=cfg.top_n,
-            min_cover_gain_bp=cfg.min_cover_gain_bp,
-            query_length_bp=query_length_bp,
-        )
-
-    kept.sort(key=_hit_sort_key)
-    return kept[: cfg.top_n]
-
-
-def select_tiling_hits(
-        hits: Sequence[QueryMatchConfidence],
-        *,
-        top_n: int,
-        min_cover_gain_bp: int = 15,
-        query_length_bp: int | None = None,
-) -> list[QueryMatchConfidence]:
-    """Greedy set-cover style selection along the query axis."""
-    if top_n <= 0 or not hits:
-        return []
-
-    coordinated = [
-        h for h in hits if h.query_start is not None and h.query_end is not None
-    ]
-    if not coordinated:
-        ranked = sorted(hits, key=_hit_sort_key)
-        return ranked[:top_n]
-    hits = coordinated
-
-    qlen = query_length_bp
-    if qlen is None or qlen <= 0:
-        qlen = max(h.query_end or 0 for h in hits)
-
-    covered = [False] * qlen
-    remaining = list(hits)
-    selected: list[QueryMatchConfidence] = []
-
-    while remaining and len(selected) < top_n:
-        best_idx = -1
-        best_key: tuple[float, float, float] | None = None
-
-        for i, hit in enumerate(remaining):
-            start = max(0, hit.query_start or 0)
-            end = min(qlen, hit.query_end or 0)
-            if end <= start:
-                continue
-            gain = sum(1 for pos in range(start, end) if not covered[pos])
-            if selected and gain < min_cover_gain_bp:
-                continue
-            if not selected and gain <= 0:
-                continue
-            score = gain * max(hit.match_score, 1e-9)
-            key = (score, hit.match_score, float(hit.mapq or 0))
-            if best_key is None or key > best_key:
-                best_key = key
-                best_idx = i
-
-        if best_idx < 0:
-            break
-
-        chosen = remaining.pop(best_idx)
-        selected.append(chosen)
-        start = max(0, chosen.query_start or 0)
-        end = min(qlen, chosen.query_end or 0)
-        for pos in range(start, end):
-            covered[pos] = True
-
-    selected.sort(
-        key=lambda h: (h.query_start or 0, h.query_end or 0, -h.match_score)
-    )
-    return selected
-
-
-def select_best_hits_by_query(
-        hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
-        config: HitFilterConfig | None = None,
-        *,
-        query_lengths: Mapping[str, int] | None = None,
-) -> dict[str, list[QueryMatchConfidence]]:
-    """Apply :func:`select_best_hits` independently to each query's hit list."""
-    lengths = query_lengths or {}
-    return {
-        query_id: select_best_hits(
-            hits, config, query_length_bp=lengths.get(query_id)
-        )
-        for query_id, hits in hits_by_query.items()
-    }
-
-
-def _interval_overlap_bp(
-        a_start: int, a_end: int, b_start: int, b_end: int
-) -> int:
-    return max(0, min(a_end, b_end) - max(a_start, b_start))
-
-
-def competing_subject_counts(
-        selected: Sequence[QueryMatchConfidence],
-        candidates: Sequence[QueryMatchConfidence],
-        *,
-        min_overlap_bp: int = 1,
-) -> list[int]:
-    """Count competing accessions overlapping each selected hit (PlasmidHawk ``n_f``)."""
-    counts: list[int] = []
-    for hit in selected:
-        hs, he = hit.query_start, hit.query_end
-        if hs is None or he is None:
-            counts.append(1)
-            continue
-        subjects: set[str] = {hit.accession_id}
-        for other in candidates:
-            os_, oe = other.query_start, other.query_end
-            if os_ is None or oe is None:
-                continue
-            if _interval_overlap_bp(hs, he, os_, oe) >= min_overlap_bp:
-                subjects.add(other.accession_id)
-        counts.append(max(1, len(subjects)))
-    return counts
-
-
-def covered_query_bases(
-        hits: Sequence[QueryMatchConfidence],
-        query_length_bp: int,
-) -> int:
-    """Union length of query intervals covered by ``hits``."""
-    if query_length_bp <= 0 or not hits:
-        return 0
-    covered = [False] * query_length_bp
-    for hit in hits:
-        if hit.query_start is None or hit.query_end is None:
-            continue
-        start = max(0, hit.query_start)
-        end = min(query_length_bp, hit.query_end)
-        for pos in range(start, end):
-            covered[pos] = True
-    return sum(covered)
-
-
-def compute_match_confidence(
-        selected_hits: Sequence[QueryMatchConfidence],
-        *,
-        candidates: Sequence[QueryMatchConfidence] | None = None,
-        query_length_bp: int | None = None,
-) -> QueryMatchConfidence | None:
-    """Primary summary for retained hits (bitscore-best alignment)."""
-    del candidates, query_length_bp  # unused; kept for call-site compat
-    return make_primary_summary(selected_hits)
 
 
 def build_query_matches(
         hits_by_query: Mapping[str, Sequence[QueryMatchConfidence]],
         config: HitFilterConfig | None = None,
-        *,
-        query_lengths: Mapping[str, int] | None = None,
 ) -> SampleReferenceSearchResult:
     """
     Bitscore-filter hits, pick sample top-N references, attach per-query hits.
@@ -476,7 +248,6 @@ def build_query_matches(
     breaks ties. Only hits to those top references are retained per read.
     """
     cfg = config or HitFilterConfig()
-    lengths = query_lengths or {}
 
     filtered: dict[str, list[QueryMatchConfidence]] = {}
     for query_id, hits in hits_by_query.items():
@@ -492,19 +263,6 @@ def build_query_matches(
     for query_id, hits in filtered.items():
         selected = [h for h in hits if h.accession_id in keep_acc]
         selected.sort(key=lambda h: (-_bitscore_of(h), -(h.sequence_identity or 0.0)))
-        # Annotate query length when known (for coverage on the summary).
-        qlen = lengths.get(query_id)
-        if qlen and selected:
-            selected = [
-                replace(
-                    h,
-                    functional_metadata={
-                        **dict(h.functional_metadata),
-                        "query_length": qlen,
-                    },
-                )
-                for h in selected
-            ]
         out[query_id] = QueryReferenceMatch(
             hits=tuple(selected),
             summary=make_primary_summary(selected),
@@ -517,15 +275,6 @@ def _seq_format(path: Path) -> str:
     if suffix in {".fq", ".fastq"}:
         return "fastq"
     return "fasta"
-
-
-def read_query_lengths(fasta_path: str | Path) -> dict[str, int]:
-    """Map sequence ID -> length from a FASTA/FASTQ file."""
-    path = Path(fasta_path)
-    return {
-        record.id: len(record.seq)
-        for record in SeqIO.parse(str(path), _seq_format(path))
-    }
 
 
 def write_engineered_query_fasta(
@@ -614,9 +363,8 @@ class BlastnReferenceSearchEngine(ReferenceSearchEngine):
             query_ids: Sequence[str] | None = None,
     ) -> SampleReferenceSearchResult:
         t0 = time.perf_counter()
-        lengths = read_query_lengths(query_fasta)
         lines = self._resolve_alignment_lines(query_fasta)
-        result = self._matches_from_lines(lines, query_lengths=lengths)
+        result = self._matches_from_lines(lines)
         matches = result.matches
 
         if query_ids is not None:
@@ -652,10 +400,9 @@ class BlastnReferenceSearchEngine(ReferenceSearchEngine):
             lines: Iterable[str],
             *,
             query_ids: Sequence[str] | None = None,
-            query_lengths: Mapping[str, int] | None = None,
     ) -> SampleReferenceSearchResult:
         """Parse/filter precomputed BLAST outfmt 6 lines (no subprocess)."""
-        result = self._matches_from_lines(lines, query_lengths=query_lengths)
+        result = self._matches_from_lines(lines)
         if query_ids is None:
             return result
         ordered = {
@@ -693,15 +440,9 @@ class BlastnReferenceSearchEngine(ReferenceSearchEngine):
     def _matches_from_lines(
             self,
             lines: Iterable[str],
-            *,
-            query_lengths: Mapping[str, int] | None = None,
     ) -> SampleReferenceSearchResult:
         parsed = parse_blast_outfmt6(lines, database_source=self.database_source)
-        return build_query_matches(
-            parsed,
-            self.config.filters,
-            query_lengths=query_lengths,
-        )
+        return build_query_matches(parsed, self.config.filters)
 
 
 def _reference_is_fasta(path: Path) -> bool:
@@ -799,18 +540,12 @@ def enrich_screen_result(
         if isinstance(raw, QueryReferenceMatch):
             hits = tuple(raw.hits)
             summary = raw.summary
-            confidence = raw.confidence
-            coverage = raw.query_coverage
         elif raw is None:
             hits = ()
             summary = None
-            confidence = None
-            coverage = None
         else:
             hits = tuple(raw)
-            summary = compute_match_confidence(hits)
-            confidence = None if summary is None else summary.confidence
-            coverage = None if summary is None else summary.query_coverage
+            summary = make_primary_summary(hits)
 
         has_match = bool(hits) and summary is not None
         note: str | None = None
@@ -821,8 +556,6 @@ def enrich_screen_result(
             replace(
                 detail,
                 database_match_note=note,
-                database_match_confidence=confidence if has_match else None,
-                database_query_coverage=coverage if has_match else None,
                 database_match_summary=summary if has_match else None,
                 database_match_hits=hits if has_match else (),
             )

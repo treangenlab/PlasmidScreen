@@ -26,12 +26,7 @@ class MEMORY_MODE(Enum):
 
 @dataclass(frozen=True)
 class QueryMatchConfidence:
-    """
-    Unified reference-match record: one alignment *or* a scored per-query summary.
-
-    Hit-level fields describe a single alignment; aggregate fields
-    (``confidence``, ``query_coverage``, …) describe scoring over retained hits.
-    """
+    """One BLAST (or equivalent) alignment of a query read to a reference."""
 
     accession_id: str
     database_source: str
@@ -43,22 +38,10 @@ class QueryMatchConfidence:
     alignment_length: Optional[int] = None
     query_start: Optional[int] = None
     query_end: Optional[int] = None
-    mapq: Optional[int] = None
     target_start: Optional[int] = None
     target_end: Optional[int] = None
     target_length: Optional[int] = None
     functional_metadata: dict[str, Any] = field(default_factory=dict)
-    confidence: float = 0.0
-    query_coverage: float = 0.0
-    covered_bp: int = 0
-    query_length_bp: int = 0
-    mean_identity: float = 0.0
-    uniqueness: float = 0.0
-    plasmidhawk_score: float = 0.0
-    meets_mapping: bool = False
-    n_accessions: int = 1
-    n_hits: int = 1
-    features: dict[str, float] = field(default_factory=dict)
 
     @property
     def query_span_bp(self) -> int:
@@ -344,8 +327,6 @@ class ReadFlagDetail:
     p_value: Optional[float] = None
     eng_kmer_coverage: Optional[float] = None
     database_match_note: Optional[str] = None
-    database_match_confidence: Optional[float] = None
-    database_query_coverage: Optional[float] = None
     database_match_summary: Optional[QueryMatchConfidence] = None
     database_match_hits: tuple[QueryMatchConfidence, ...] = ()
     # GenBank labels overlapped by the primary hit (filled during map-hits).

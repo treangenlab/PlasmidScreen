@@ -253,7 +253,6 @@ def test_blast_engine_search_from_blast_lines(tmp_path: Path) -> None:
     out = engine.search_from_blast_lines(
         lines,
         query_ids=["read1", "read2", "read3"],
-        query_lengths={"read1": 100, "read2": 100, "read3": 50},
     )
 
     assert list(out.matches.keys()) == ["read1", "read2", "read3"]
@@ -265,11 +264,9 @@ def test_blast_engine_search_from_blast_lines(tmp_path: Path) -> None:
 
 
 @patch("plasmidScreen.lib.db_search.subprocess.run")
-@patch("plasmidScreen.lib.db_search.read_query_lengths", autospec=True)
 def test_blast_engine_search_batch_invokes_blastn(
-    mock_lengths, mock_run, tmp_path: Path, sample_fasta: Path
+    mock_run, tmp_path: Path, sample_fasta: Path
 ) -> None:
-    mock_lengths.return_value = {"read_synthetic_1": 100}
     mock_run.return_value.stdout = (
         _blast_line("read_synthetic_1", "REF1", bitscore=220.0) + "\n"
     )

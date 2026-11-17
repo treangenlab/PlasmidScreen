@@ -45,7 +45,6 @@ def post_analysis_report(
         filters=HitFilterConfig(
             min_bitscore=min_bitscore,
             top_n_references=top_n,
-            top_n=top_n,
             max_evalue=max_evalue,
         ),
         output_path=Path(output_path) if output_path else None,
