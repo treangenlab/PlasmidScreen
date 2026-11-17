@@ -35,7 +35,6 @@ htmlcov/
 *~
 
 # Local data, results, and large binaries (do not commit)
-*.mmi
 *.dmnd
 *.kraken_out*
 *_kraken_out.txt
@@ -46,7 +45,6 @@ tmp_output.txt
 output.txt
 test_output.txt
 example_for_mike.txt
-minimap_output
 valid_hits_fasta.fasta
 blastn
 ncbi-blast-*/
@@ -65,6 +63,13 @@ non_src_files/
 # Scratch / local scripts (keep package source only)
 scratch.py
 scratch4.py
+
+# Perseus bridge (disabled; keep local copy, do not track)
+plasmidScreen/lib/perseus.py
+tests/test_perseus.py
+
+# Empty unused stub (keep local if present, do not track)
+plasmidScreen/lib/const.py
 
 # Local benchmark configs / outputs (keep example YAML)
 benchmarks/felix_tne.yaml

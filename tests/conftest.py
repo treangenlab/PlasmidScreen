@@ -11,11 +11,9 @@ from Bio.Data import CodonTable
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
-# Unfinished features — exclude until those modules are restored
+# Perseus disabled — skip local test_perseus.py if present (gitignored).
 collect_ignore = [
-    "test_db_search.py",
-    "test_pileup.py",
-    "test_html_report.py",
+    "test_perseus.py",
 ]
 
 _CODON_TO_AA = CodonTable.unambiguous_dna_by_id[1].forward_table.copy()

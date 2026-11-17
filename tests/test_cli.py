@@ -29,6 +29,40 @@ def test_cli_help_boots() -> None:
     assert result.exit_code == 0
     assert "screen" in result.output
     assert "build" in result.output
+    assert "visualize" in result.output
+    assert "prefetch-genbank" in result.output
+
+
+def test_screen_visualize_requires_reference_db() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "screen",
+            "reads.fa",
+            "report.txt",
+            "kraken_db",
+            "--skip-codon-usage",
+            "--visualize",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "reference-db" in _cli_text(result)
+
+
+def test_screen_map_hits_requires_reference_db() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "screen",
+            "reads.fa",
+            "report.txt",
+            "kraken_db",
+            "--skip-codon-usage",
+            "--map-hits",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "reference-db" in _cli_text(result)
 
 
 def test_screen_no_run_kraken_requires_path() -> None:
@@ -72,8 +106,163 @@ def test_screen_skip_codon_usage_invokes_run_screen(mock_run: MagicMock) -> None
     assert kwargs["run_codon_usage"] is False
     assert kwargs["engineered_kmer_threshold"] == 15
     assert kwargs["background_rate"] == 0.001
+    assert kwargs["kmer_size"] == 21
+    assert kwargs["minimizer_size"] == 17
     assert kwargs["seq_type"] == 1  # CLI default: short read
     assert kwargs["quiet_mode"] is False
+
+
+@patch("plasmidScreen.cli.run_screen")
+def test_screen_passes_kmer_and_minimizer_size(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(overall_synthetic_count=0, per_read=[])
+    result = runner.invoke(
+        app,
+        [
+            "screen",
+            "reads.fa",
+            "report.txt",
+            "kraken_db",
+            "--skip-codon-usage",
+            "--kmer-size",
+            "35",
+            "--minimizer-size",
+            "31",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["kmer_size"] == 35
+    assert kwargs["minimizer_size"] == 31
+
+
+@patch("plasmidScreen.cli.map_and_visualize_engineered")
+@patch("plasmidScreen.cli.run_screen")
+def test_screen_visualize_invokes_map_and_visualize(
+    mock_run: MagicMock,
+    mock_map_viz: MagicMock,
+) -> None:
+    screen = MagicMock(overall_synthetic_count=1, per_read=[MagicMock()])
+    mock_run.return_value = screen
+    mock_map_viz.return_value = (
+        screen,
+        MagicMock(pileup_paths=[Path("a.png")], output_dir=Path("viz_out")),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "screen",
+            "reads.fa",
+            "report.txt",
+            "kraken_db",
+            "--skip-codon-usage",
+            "--visualize",
+            "--reference-db",
+            "plasmids.fa",
+            "--viz-dir",
+            "viz_out",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    mock_run.assert_called_once()
+    mock_map_viz.assert_called_once()
+    kwargs = mock_map_viz.call_args.kwargs
+    assert kwargs["query_fasta"] == "reads.fa"
+    assert kwargs["reference_db"] == "plasmids.fa"
+    assert kwargs["viz_dir"] == "viz_out"
+
+
+@patch("plasmidScreen.cli.map_engineered_reads")
+@patch("plasmidScreen.cli.run_screen")
+def test_screen_map_hits_without_visualize(
+    mock_run: MagicMock,
+    mock_map: MagicMock,
+) -> None:
+    screen = MagicMock(
+        overall_synthetic_count=1,
+        per_read=[MagicMock()],
+        top_engineered_references=("ref1",),
+    )
+    mock_run.return_value = screen
+    mock_map.return_value = screen
+    result = runner.invoke(
+        app,
+        [
+            "screen",
+            "reads.fa",
+            "report.txt",
+            "kraken_db",
+            "--skip-codon-usage",
+            "--map-hits",
+            "--reference-db",
+            "plasmids.fa",
+            "--quiet",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    mock_map.assert_called_once()
+    assert mock_map.call_args.kwargs["reference_db"] == "plasmids.fa"
+
+
+@patch("plasmidScreen.cli.map_and_visualize_engineered")
+@patch("plasmidScreen.cli.screen_result_from_engineered_report")
+def test_visualize_command_invokes_pipeline(
+    mock_from_report: MagicMock,
+    mock_map_viz: MagicMock,
+) -> None:
+    rebuilt = MagicMock(overall_synthetic_count=2, per_read=[1, 2])
+    mock_from_report.return_value = rebuilt
+    mock_map_viz.return_value = (
+        rebuilt,
+        MagicMock(pileup_paths=[Path("p.png")], output_dir=Path("viz_out")),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "visualize",
+            "reads.fa",
+            "report.txt",
+            "plasmids.fa",
+            "viz_out",
+            "--top-n",
+            "3",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    mock_from_report.assert_called_once()
+    mock_map_viz.assert_called_once()
+    kwargs = mock_map_viz.call_args.kwargs
+    assert kwargs["top_n"] == 3
+    assert kwargs["reference_db"] == "plasmids.fa"
+    # Default: cache-only; --fetch-genbank opts into on-demand NCBI.
+    assert kwargs.get("fetch_genbank") is False
+
+
+@patch("plasmidScreen.cli.prefetch_genbank_from_fasta")
+def test_prefetch_genbank_command(mock_prefetch: MagicMock, tmp_path: Path) -> None:
+    mock_prefetch.return_value = MagicMock(
+        ids_requested=2,
+        ids_cached=2,
+        ids_missing=0,
+        ids_fetched_this_run=1,
+        cache_dir=tmp_path,
+    )
+    result = runner.invoke(
+        app,
+        [
+            "prefetch-genbank",
+            "plasmids.fa",
+            "--cache-dir",
+            str(tmp_path),
+            "--ncbi-api-key",
+            "KEY",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    mock_prefetch.assert_called_once()
+    args, kwargs = mock_prefetch.call_args
+    assert args[0] == "plasmids.fa"
+    assert kwargs["cache_dir"] == str(tmp_path)
+    assert kwargs["api_key"] == "KEY"
 
 
 @patch("plasmidScreen.cli.run_screen")

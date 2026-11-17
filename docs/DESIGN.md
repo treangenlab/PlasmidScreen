@@ -30,6 +30,11 @@ flowchart LR
 | Full screening | Not required | `run_screen()` / `python plasmidScreen.py screen` |
 | Codon-only | Not required | `analyze_codon_adaptation()` |
 | Overall engineered call | Not required | `run_screen()` → `ScreenResult.per_read` |
+| Prefetch GenBank | Required once | `prefetch_genbank_from_fasta()` / `prefetch-genbank` |
+| Map engineered reads | Not required† | `map_engineered_reads()` / `screen --map-hits` |
+| Visualize pileups | Not required‡ | `visualize_engineered_mappings()` / `screen --visualize` / `visualize` |
+
+† Requires local nucleotide FASTA + `blastn`. ‡ Feature tracks come from the local GenBank cache (prefetched) by default; `--fetch-genbank` optionally downloads missing records for ad-hoc installs.
 
 ---
 
@@ -162,10 +167,13 @@ Directory (default: `~/.local/share/PlasmidScreen/codon_usage/`):
 | Parameter | CLI flag | Default | Description |
 |-----------|----------|---------|-------------|
 | `window_size` | `--window_size` | 200 | Nucleotide window for k-mer voting |
-| `engineered_kmer_threshold` | `--threshold` | 25 | Min engineered (32630) k-mers in window to label **Synthetic** |
+| `engineered_kmer_threshold` | `--threshold` | 10 | Min engineered (32630) k-mers in window to label **Synthetic** |
+| `kmer_size` | `--kmer-size` | 21 | k-mer length (must match Kraken2 DB) |
+| `minimizer_size` | `--minimizer-size` | 17 | Minimizer length ``ℓ`` (must match Kraken2 DB) |
 | `threads` | `--threads` | 4 | Kraken2 threads (when `run_kraken=True`) |
 
-Effective k-mers per window: `window_size - 21 + 1` (Kraken k=21 minimizers in window logic).
+Effective slots per window use ``window_size - kmer_size - minimizer_size + 2``
+in the scan math (defaults: k=21, ℓ=17).
 
 ### 2.2 Codon adaptation (DIAMOND + CSDB)
 
@@ -189,28 +197,43 @@ These parameters are copied onto `ScreenResult` (`engineered_kmer_threshold`, `e
 
 **Path:** user-provided engineered report path (e.g. `report.txt`)
 
+Written by `Workflow.write_screen_result` from `per_read` (overall call, not the
+window-only `EngineeredScanResult` labels).
+
 | Column | Type | Meaning |
 |--------|------|---------|
-| Label | `Natural` \| `Synthetic` | **K-mer scan only** (not the combined `overall_label`; see §3.4) |
+| Label | `Engineered` \| `Natural` | From `engineered_overall` (see §3.4) |
 | Read_ID | string | Read identifier |
-| Methods | string | Method tags (e.g. `engineered_kmer_scan`) |
-| EngineeredKmerMaxInWindow | int | Max engineered-kmer count observed in any window |
-| KmerThreshold | int | Threshold used to label Synthetic |
-| WindowSize | int | Window size used for scanning |
+| Methods | string | Contributing methods (`engineered_kmer_scan`, `codon_cai`, …) or `NA` |
+| P-Value | float | Binomial p-value for engineered k-mer count vs `--bg` |
+| Eng-Coverage Percentage | percent string | Fraction of mapped k-mers that are engineered (e.g. `5.80%`) |
+| Plasmid | string | Primary BLAST accession (best bitscore), or `NA` until map/viz |
+| Target_Start | int \| `NA` | Alignment start on that plasmid |
+| Target_End | int \| `NA` | Alignment end on that plasmid |
+| Sequence_Identity | float \| `NA` | Percent identity of the primary hit |
+| Match_Score | float \| `NA` | Primary hit match score (blastn bitscore) |
+| Overlapping_Features | string \| `NA` | GenBank feature labels overlapped by the primary hit (after map) |
 
-**Example**
+Screen writes the first five columns immediately; `--map-hits` (and
+`--visualize`, which implies map) rewrites the same path to fill BLAST columns
+and overlapping features from the local GenBank cache. Visualization adds
+pileup PNGs that draw the same primary hit per read (one bar matching the
+report Plasmid / coords / features), not secondary BLAST HSPs.
+
+**Example** (after `--visualize`)
 
 ```text
-Label	Read_ID	Methods	EngineeredKmerMaxInWindow	KmerThreshold	WindowSize
-Natural	read_natural_1		0	25	200
-Synthetic	read_synthetic_1	engineered_kmer_scan	35	25	200
+Label	Read_ID	Methods	P-Value	Eng-Coverage Percentage	Plasmid	Target_Start	Target_End	Sequence_Identity	Match_Score	Overlapping_Features
+Natural	read_natural_1	NA	1.0	0.00%	NA	NA	NA	NA	NA	NA
+Engineered	read_synthetic_1	engineered_kmer_scan	1.2e-10	14.75%	MK178573.1	5846	8105	99.115	3995	AmpR,ColE1 origin
 ```
 
 ### 3.2 Codon usage report (TSV)
 
 **Path:** `--codon-usage-output` (optional)
 
-Only **Natural** reads are scored when run via full `screen` workflow.
+Only reads that are **not** k-mer engineered after the window + p-value gate are
+scored when run via the full `screen` workflow.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -233,7 +256,11 @@ read_natural_1	+	0-99	562	562	99	0.7234
 
 ### 3.4 Overall engineered classification (library)
 
-Produced only in **`ScreenResult`** / **`ReadFlagDetail`** (not in the k-mer report TSV file).
+Produced in **`ScreenResult`** / **`ReadFlagDetail`**. The engineered report TSV
+`Label` column is this overall call (`Engineered` / `Natural`), not the window-only
+scan label. After `--map-hits` / `--visualize`, the same TSV also carries the
+primary BLAST hit (`Plasmid`, coords, identity, score) and overlapping GenBank
+feature labels from the local cache (see §3.1). Visualization adds pileup PNGs.
 
 For each read in `per_read`:
 
@@ -242,6 +269,10 @@ engineered_overall =
     engineered_by_kmer_scan
     OR (codon_cai_engineered_threshold is set AND engineered_by_codon_cai is True)
 ```
+
+`engineered_by_kmer_scan` is True only when the window threshold is met **and** the
+binomial p-value is ≤ `PVALUE_ALPHA` (default 0.05). Higher p-values reassign the
+read as Natural for the k-mer component (CAI may still flag it).
 
 | Field | Meaning |
 |-------|---------|
@@ -259,7 +290,7 @@ engineered_overall =
 | `engineered_read_ids` | Set of read IDs engineered overall |
 | `natural_read_ids_overall` | Set of read IDs natural overall |
 
-**Count mismatch:** `engineered_scan.synthetic_count` counts k-mer **Synthetic** reads only. `overall_synthetic_count` can be higher when `--codon-cai-threshold` flags additional Natural reads via high CAI.
+**Count mismatch:** `engineered_scan.synthetic_count` counts **window-threshold** hits only (before the p-value gate). After gating, some of those reads are demoted for `engineered_by_kmer_scan`, so `engineered_scan.synthetic_count` can be **higher** than the number of k-mer-engineered reads in `per_read`. Separately, `overall_synthetic_count` can rise above the gated k-mer count when `--codon-cai-threshold` flags additional reads via high CAI.
 
 Use `compute_engineered_overall()` from the library to apply the same rule outside `run_screen`.
 
@@ -279,9 +310,36 @@ Use `compute_engineered_overall()` from the library to apply the same rule outsi
 | `overall_natural_count` | int (property) | Reads with `engineered_overall=False` |
 | `engineered_read_ids` | set[str] (property) | IDs classified engineered overall |
 | `natural_read_ids_overall` | set[str] (property) | IDs classified natural overall |
-| `engineered_report_path` | `Path \| None` | Written engineered report (k-mer labels only) |
+| `engineered_report_path` | `Path \| None` | Written engineered report (match columns filled after map/viz) |
 | `codon_usage_report_path` | `Path \| None` | Written codon TSV |
 | `diamond_output_path` | `Path \| None` | Saved or loaded DIAMOND TSV path |
+| `top_engineered_references` | `tuple[SampleReferenceRank, ...]` | Filled by `map_engineered_reads` |
+| `engineered_mapping_hits` | `tuple[EngineeredMappingHit, ...]` | Filled by `visualize_engineered_mappings` |
+| `visualization` | `VisualizationReport \| None` | Attached when viz mode runs |
+| `reference_database_source` | `str \| None` | Label for the blastn subject DB |
+
+Per-read primary BLAST / feature fields (on each ``ReadFlagDetail``):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `matched_plasmid` | `str \| None` (property) | Primary BLAST accession |
+| `match_target_start` / `match_target_end` | `int \| None` (properties) | Alignment coords |
+| `match_sequence_identity` | `float \| None` (property) | Percent identity |
+| `match_score` | `float \| None` (property) | Primary hit score (bitscore) |
+| `overlapping_features` | `tuple[str, ...]` | GenBank labels overlapped by primary hit (after map) |
+
+#### `VisualizationReport`
+
+Returned by `visualize_engineered_mappings` / `map_and_visualize_engineered`, and
+attached to ``ScreenResult.visualization`` when visualization is enabled.
+Primary BLAST / feature columns live on ``ReadFlagDetail`` and the engineered TSV.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `output_dir` | `Path` | Directory containing pileup PNGs |
+| `pileup_paths` | `tuple[Path, ...]` | Written figure paths |
+| `engineered_mapping_hits` | `tuple[EngineeredMappingHit, ...]` | Per-plasmid mapping summaries |
+| `top_engineered_references` | `tuple[SampleReferenceRank, ...]` | Ranked references used for viz |
 
 #### `CodonAdaptationResult`
 
@@ -310,8 +368,8 @@ Per-read attribution and evidence for engineered calls.
 | Field | Type | Description |
 |-------|------|-------------|
 | `read_id` | str | Read ID |
-| `kmer_label` | `"Natural"` \| `"Synthetic"` | Label from engineered k-mer scan |
-| `engineered_by_kmer_scan` | bool | True if engineered k-mer scan flagged |
+| `kmer_label` | `"Natural"` \| `"Synthetic"` | Window hit **and** `p ≤ PVALUE_ALPHA` → Synthetic; else Natural |
+| `engineered_by_kmer_scan` | bool | Same gate as `kmer_label == "Synthetic"` |
 | `engineered_kmer_max_in_window` | int \| None | Max engineered-kmer count observed |
 | `engineered_kmer_threshold` | int \| None | Threshold used |
 | `engineered_kmer_window_size` | int \| None | Window size used |
@@ -339,19 +397,26 @@ Per-read attribution and evidence for engineered calls.
 
 ### 4.1 Engineered vs Natural
 
-- Each classified read with valid k-mer block data receives **Synthetic** if sliding-window count of taxid `32630` ≥ threshold; otherwise **Natural**.
+Two layers:
+
+- **Window scan** (`EngineeredScanResult.labels`): **Synthetic** if sliding-window count of taxid `32630` ≥ threshold; otherwise **Natural**.
+- **K-mer engineered call** (`engineered_by_kmer_scan` / `kmer_label`): window Synthetic **and** binomial `p_value ≤ PVALUE_ALPHA` (default 0.05). Insignificant window hits are treated as Natural for this component.
+- **Report `Label`**: overall call (`Engineered` / `Natural`) from §3.4 / §4.3.
 - Unclassified reads (`U`) are still listed in the engineered report if present in Kraken output; codon analysis skips reads without DIAMOND host/ORF assignment.
 
 ### 4.2 Codon analysis gating
 
-- Full pipeline: codon CAI runs **only** for reads labeled **Natural** by the k-mer scan.
+- Full pipeline: codon CAI runs for reads that are **not** k-mer engineered after the
+  window + p-value gate (insignificant window hits are eligible for CAI).
 - Standalone `analyze_codon_adaptation`: scores all reads with DIAMOND hits unless `include_read_ids` is set.
 - If zero Natural reads, codon output is empty (no TSV unless path set with zero rows).
 
 ### 4.3 Overall engineered decision
 
 - Populated in `Workflow.run()` for every read in `engineered_scan.labels`.
-- **K-mer component:** `engineered_by_kmer_scan` is `True` when `kmer_label == "Synthetic"` (threshold `--threshold`, window `--window_size`).
+- **K-mer component:** `engineered_by_kmer_scan` is `True` when the window threshold is
+  met **and** binomial `p_value ≤ pvalue_alpha` (default 0.05 via `--pvalue-alpha`;
+  `--bg` sets the null rate).
 - **Codon component:** only evaluated when `codon_cai_engineered_threshold` is set on the workflow. For Natural reads with a CAI score, `engineered_by_codon_cai = (cai_vs_host > threshold)`. Reads without CAI (e.g. k-mer Synthetic, or no DIAMOND hit) keep `engineered_by_codon_cai=None`.
 - **Overall:** `engineered_overall` is `True` if either component is `True`; `overall_label` is `"Synthetic"` or `"Natural"` accordingly.
 - When `--codon-cai-threshold` is omitted, `engineered_overall` equals `engineered_by_kmer_scan` for all reads.
@@ -388,6 +453,8 @@ No network access occurs during `analyze_codon_adaptation` or `run_screen` codon
 screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_DB_PATH
   --window_size INT
   --threshold INT
+  --kmer-size INT
+  --minimizer-size INT
   --codon-usage-output PATH
   --codon-usage-dir PATH
   --codon-cai-threshold FLOAT
@@ -403,6 +470,53 @@ screen FASTA_FILE OUTPUT_REPORT_PATH KRAKEN_DB_PATH
   --debug-write-kraken-report
   --run-kraken / --no-run-kraken
   --threads INT
+  --bg / --background-rate FLOAT
+  --pvalue-alpha FLOAT
+  --map-hits / --no-map-hits
+  --reference-db PATH
+  --visualize / --no-visualize
+  --viz-dir PATH
+  --viz-top-n INT
+  --viz-min-bitscore FLOAT
+  --blastn TEXT
+  --blast-output-path PATH
+  --genbank PATH
+  --genbank-cache-dir PATH
+  --fetch-genbank / --no-fetch-genbank
+  --ncbi-api-key TEXT
+```
+
+### `prefetch-genbank` arguments
+
+Networked one-time fill of the local GenBank cache from a reference FASTA:
+
+```text
+prefetch-genbank REFERENCE_FASTA
+  --cache-dir PATH
+  --ncbi-api-key TEXT
+  --quiet / -q
+```
+
+### `visualize` arguments
+
+Standalone map + pileups from a prior engineered report (no Kraken/DIAMOND rerun).
+Remaps (filling BLAST / feature columns; see §3.1) then writes pileup PNGs.
+Feature tracks are loaded from the GenBank cache (see `prefetch-genbank`):
+
+```text
+visualize FASTA REPORT REFERENCE_DB VIZ_DIR
+  --threads INT
+  --top-n INT
+  --min-bitscore FLOAT
+  --blastn TEXT
+  --blast-output-path PATH
+  --genbank PATH
+  --genbank-cache-dir PATH
+  --fetch-genbank / --no-fetch-genbank
+  --ncbi-api-key TEXT
+  --threshold INT
+  --window_size INT
+  --quiet / -q
 ```
 
 ### `build` arguments
@@ -431,11 +545,18 @@ from plasmidScreen import (
     build_codon_database,        # convenience wrapper for build CLI
     analyze_codon_adaptation,    # -> tuple[list[CodonAdaptationResult], Path | None]
     run_screen,                  # -> ScreenResult (per_read engineered_overall)
+    map_engineered_reads,        # -> ScreenResult with top_engineered_references
+    visualize_engineered_mappings,  # -> VisualizationReport (+ pileups)
+    map_and_visualize_engineered,   # map then visualize
+    screen_result_from_engineered_report,  # rebuild ScreenResult from report TSV
+    prefetch_genbank_from_fasta, # fill local GenBank cache from reference FASTA
+    default_genbank_cache_dir,
     write_codon_adaptation_tsv,  # -> tuple[str, list[CodonAdaptationResult]]
     taxids_from_kraken_output,   # taxids for reference subset builds
     compute_engineered_overall,  # same OR rule as run_screen per_read
     ReadFlagDetail,
     ScreenResult,
+    VisualizationReport,
     CodonUsageStore,
     default_codon_usage_dir,
 )
@@ -444,5 +565,7 @@ from plasmidScreen import (
 Recommended airgapped workflow:
 
 1. Networked: `build_codon_reference(dir)` or subset taxids / Kraken-derived taxids.
-2. Copy `dir` (and DIAMOND DB if needed) to the airgapped environment.
-3. Run `run_screen(reads, kraken_db, diamond_db=..., codon_usage_dir=dir)` or codon-only `analyze_codon_adaptation(reads, diamond_db=..., codon_usage_dir=dir)`.
+2. Networked: `prefetch_genbank_from_fasta(plasmids.fa)` (or CLI `prefetch-genbank`).
+3. Copy codon dir, GenBank cache, and DIAMOND DB if needed to the airgapped environment.
+4. Run `run_screen(reads, kraken_db, diamond_db=..., codon_usage_dir=dir)` or codon-only `analyze_codon_adaptation(reads, diamond_db=..., codon_usage_dir=dir)`.
+5. Optional offline map/viz: `map_and_visualize_engineered(..., reference_db=plasmids.fa, viz_dir=...)`.
