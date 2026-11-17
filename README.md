@@ -134,11 +134,11 @@ Similarly installing diamond can be found in their wiki: https://github.com/bbuc
 
 We recommend custom databases for both Kraken2 and DIAMOND. The suggested Kraken2 database contains a curated set of
 sequences tailored for engineered-DNA signal. For codon optimization, host taxonomy of the ORF matters, so a
-comprehensive DIAMOND database is recommended (e.g. UniRef100 with taxids).
+comprehensive DIAMOND database is recommended (e.g. UniRef100 with taxids). A BLAST database is also needed for the engineered signal alone for --map-hits option.
 
 - K-mer scan: Custom Kraken2 database (~20GB)
 - Codon optimization: UniRef100 DIAMOND database (~235GB)
-
+- BLAST step: EngineeredSeqsBlastDB
 ### CLI — screen
 
 Input reads may be plain or gzip-compressed FASTA/FASTQ
