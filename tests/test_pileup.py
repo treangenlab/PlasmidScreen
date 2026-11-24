@@ -177,6 +177,8 @@ def test_visualize_api_respects_top_refs_and_attaches_visualization(
 
 
 def test_render_plasmid_pileup_builds_figure() -> None:
+    from plasmidScreen.src.visualization_code import PlasmidAnnotation
+
     fig = render_plasmid_pileup(
         "plasmid_X",
         [
@@ -189,9 +191,23 @@ def test_render_plasmid_pileup_builds_figure() -> None:
                 strand="-",
             ),
         ],
+        annotations=(
+            PlasmidAnnotation(
+                start=50, end=200, label="bla", feature_type="CDS", strand=1
+            ),
+            PlasmidAnnotation(
+                start=300, end=400, label="ori", feature_type="rep_origin", strand=1
+            ),
+        ),
     )
     assert fig._suptitle is not None
     assert "plasmid_X" in fig._suptitle.get_text()
+    legend = fig.axes[0].get_legend()
+    assert legend is not None
+    labels = [t.get_text() for t in legend.get_texts()]
+    assert "CDS / gene" in labels
+    assert "origin of replication" in labels
+    assert "query alignment" in labels
     import matplotlib.pyplot as plt
 
     plt.close(fig)
@@ -208,6 +224,47 @@ def test_create_pile_ups_writes_one_png_per_plasmid(tmp_path: Path) -> None:
     names = sorted(p.name for p in written)
     assert names == ["pileup_plasmid_X.png", "pileup_plasmid_Y.png"]
     assert (tmp_path / "pileup_plasmid_X.png").stat().st_size > 0
+
+
+def test_dedupe_annotations_collapses_repeated_aliases() -> None:
+    from plasmidScreen.src.visualization_code import (
+        PlasmidAnnotation,
+        _dedupe_annotations,
+    )
+
+    base = (
+        PlasmidAnnotation(start=10, end=100, label="bla", feature_type="gene", strand=1),
+        PlasmidAnnotation(start=10, end=100, label="bla", feature_type="CDS", strand=1),
+        PlasmidAnnotation(
+            start=200, end=210, label="promoter", feature_type="promoter", strand=1
+        ),
+        # Near-duplicate RBS (1 bp difference) should collapse.
+        PlasmidAnnotation(
+            start=1904,
+            end=1909,
+            label="ribosome binding site",
+            feature_type="regulatory",
+            strand=1,
+        ),
+        PlasmidAnnotation(
+            start=1904,
+            end=1910,
+            label="ribosome binding site",
+            feature_type="regulatory",
+            strand=1,
+        ),
+    )
+    # Simulate concatenating the same record under many GenBank accession aliases.
+    duplicated = base * 14
+    deduped = _dedupe_annotations(duplicated)
+    assert len(deduped) == 3  # gene+CDS, promoter, one RBS
+    types = {a.feature_type for a in deduped}
+    assert "promoter" in types
+    assert "regulatory" in types
+    assert ("gene" in types) or ("CDS" in types)
+    rbs = [a for a in deduped if a.feature_type == "regulatory"]
+    assert len(rbs) == 1
+    assert rbs[0].end - rbs[0].start == 6  # kept the longer 1904–1910
 
 
 def test_compound_location_explodes_into_parts() -> None:

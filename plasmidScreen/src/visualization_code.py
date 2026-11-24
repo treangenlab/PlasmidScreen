@@ -42,6 +42,20 @@ _HIT_PLUS = "#4c78a8"
 _HIT_MINUS = "#e45756"
 _TEXT = "#1c1917"
 _MUTED = "#6b7280"
+# Legend labels for GenBank feature types (CDS/gene share a swatch).
+_FEATURE_LEGEND_LABELS = {
+    "CDS": "CDS / gene",
+    "gene": "CDS / gene",
+    "promoter": "promoter",
+    "terminator": "terminator",
+    "rep_origin": "origin of replication",
+    "oriT": "origin of transfer",
+    "misc_feature": "misc feature",
+    "regulatory": "regulatory",
+    "protein_bind": "protein bind",
+    "misc_binding": "misc binding",
+    "primer_bind": "primer bind",
+}
 # Above this many alignments, draw a coverage aggregate instead of one row each.
 _PER_QUERY_MAX = 12
 _ANNOTATION_TYPES = (
@@ -355,28 +369,72 @@ def _strand_of(hit: QueryMatchConfidence) -> str:
     return strand if strand in {"+", "-"} else "+"
 
 
+def _spans_nearly_same(a: PlasmidAnnotation, b: PlasmidAnnotation) -> bool:
+    """True when intervals heavily overlap (near-duplicate GenBank sites)."""
+    if a.strand != b.strand:
+        return False
+    overlap = max(0, min(a.end, b.end) - max(a.start, b.start))
+    if overlap <= 0:
+        return False
+    shorter = min(a.end - a.start, b.end - b.start)
+    return overlap >= max(1, int(0.8 * max(shorter, 1)))
+
+
 def _dedupe_annotations(
         annotations: Sequence[PlasmidAnnotation],
 ) -> list[PlasmidAnnotation]:
-    """Drop redundant CDS when a gene occupies the same span; keep other types."""
-    by_span: dict[tuple[int, int, int], PlasmidAnnotation] = {}
-    extras: list[PlasmidAnnotation] = []
+    """
+    Collapse duplicate GenBank intervals.
+
+    gene/CDS on the same span are merged (prefer gene name + CDS product).
+    All other types are uniqued by (start, end, strand, feature_type) so
+    repeated accession aliases / duplicate GenBank entries do not stack.
+    Near-identical sites of the same type+label (e.g. RBS off by 1 bp) are
+    also collapsed to keep dna_features_viewer from stacking labels.
+    """
+    by_gene_span: dict[tuple[int, int, int], PlasmidAnnotation] = {}
+    by_other: dict[tuple[int, int, int, str], PlasmidAnnotation] = {}
     for ann in annotations:
-        key = (ann.start, ann.end, ann.strand)
+        span = (ann.start, ann.end, ann.strand)
         if ann.feature_type in {"gene", "CDS"}:
-            existing = by_span.get(key)
+            existing = by_gene_span.get(span)
             if existing is None:
-                by_span[key] = ann
+                by_gene_span[span] = ann
             elif existing.feature_type == "CDS" and ann.feature_type == "gene":
-                by_span[key] = _with_richer_label(ann, existing)
+                by_gene_span[span] = _with_richer_label(ann, existing)
             elif existing.feature_type == "gene" and ann.feature_type == "CDS":
-                by_span[key] = _with_richer_label(existing, ann)
-            elif existing.feature_type == ann.feature_type:
-                if len(ann.label) > len(existing.label):
-                    by_span[key] = ann
-        else:
-            extras.append(ann)
-    return sorted(list(by_span.values()) + extras, key=lambda a: (a.start, a.end, a.label))
+                by_gene_span[span] = _with_richer_label(existing, ann)
+            elif len(ann.label) > len(existing.label):
+                by_gene_span[span] = ann
+            continue
+        key = (*span, ann.feature_type)
+        existing = by_other.get(key)
+        if existing is None or len(ann.label) > len(existing.label):
+            by_other[key] = ann
+
+    # Second pass: merge near-duplicate non-gene sites with the same label.
+    others = list(by_other.values())
+    kept: list[PlasmidAnnotation] = []
+    for ann in sorted(others, key=lambda a: (a.start, -(a.end - a.start), a.label)):
+        merged = False
+        for i, prev in enumerate(kept):
+            if (
+                prev.feature_type == ann.feature_type
+                and prev.label == ann.label
+                and _spans_nearly_same(prev, ann)
+            ):
+                # Keep the longer interval.
+                if (ann.end - ann.start) > (prev.end - prev.start):
+                    kept[i] = ann
+                merged = True
+                break
+        if not merged:
+            kept.append(ann)
+
+    return sorted(
+        list(by_gene_span.values()) + kept,
+        key=lambda a: (a.start, a.end, a.label),
+    )
 
 
 def _short_accession(accession_id: str) -> str:
@@ -496,7 +554,7 @@ def render_plasmid_pileup(
     look when many reads hit the same plasmid. Returns a Matplotlib figure.
     """
     import matplotlib.pyplot as plt
-    from matplotlib.patches import FancyBboxPatch
+    from matplotlib.patches import FancyBboxPatch, Patch
 
     GraphicFeature, GraphicRecord = _import_dna_features_viewer()
 
@@ -692,11 +750,55 @@ def render_plasmid_pileup(
         )
     else:
         region = f"{ref_len:,} bp"
+    drawn_annots = [a for a in annots if _feature_display_label(a) is not None]
     title = f"{short}   ·   {len(ordered)} alignment(s)"
-    if annots:
-        title += f"   ·   {len(annots)} features"
+    if drawn_annots:
+        title += f"   ·   {len(drawn_annots)} features"
     title += f"   ·   {region}"
     fig.suptitle(title, fontsize=12, color=_TEXT, fontweight="semibold", y=0.99)
+
+    # Legend: feature types present on this map + query alignment swatch.
+    legend_handles: list[Patch] = []
+    seen_labels: set[str] = set()
+    for ann in drawn_annots:
+        label = _FEATURE_LEGEND_LABELS.get(ann.feature_type, ann.feature_type)
+        if label in seen_labels:
+            continue
+        seen_labels.add(label)
+        legend_handles.append(
+            Patch(
+                facecolor=_FEATURE_COLORS.get(ann.feature_type, _DEFAULT_FEATURE_COLOR),
+                edgecolor="#9ca3af",
+                linewidth=0.6,
+                label=label,
+            )
+        )
+    if hit_rows:
+        legend_handles.append(
+            Patch(
+                facecolor=_HIT_PLUS,
+                edgecolor="none",
+                alpha=0.9,
+                label="query alignment" if not aggregate else "query coverage",
+            )
+        )
+    if legend_handles:
+        ax_genes.legend(
+            handles=legend_handles,
+            loc="upper right",
+            frameon=True,
+            fancybox=False,
+            edgecolor="#e5e7eb",
+            fontsize=8,
+            title="Legend",
+            title_fontsize=8,
+            framealpha=0.95,
+            borderpad=0.4,
+            handlelength=1.2,
+            handleheight=0.8,
+            labelspacing=0.35,
+        )
+
     fig._plasmid_accession = accession_id  # type: ignore[attr-defined]
     fig.subplots_adjust(left=0.12, right=0.98, top=0.93, bottom=0.09, hspace=0.20)
     return fig
