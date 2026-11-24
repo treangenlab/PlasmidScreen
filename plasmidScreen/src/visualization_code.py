@@ -456,8 +456,7 @@ def _import_dna_features_viewer():
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "Pileup figures require dna_features_viewer. "
-            "Install with: pip install 'plasmidScreen[viz]' "
-            "or: pip install dna_features_viewer"
+            "Reinstall PlasmidScreen (pip install .) or: pip install dna_features_viewer"
         ) from exc
     return GraphicFeature, GraphicRecord
 
