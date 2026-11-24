@@ -13,6 +13,7 @@ dependencies:
 
   # Core Pipeline & Math Packages
   - biopython>=1.83
+  - matplotlib>=3.7
   - numba>=0.58
   - numpy>=1.24
   - rich>=13.0

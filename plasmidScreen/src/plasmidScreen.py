@@ -290,9 +290,16 @@ class Workflow:
         Returns
         -------
         (hit, max_eng, target_kmers, total_mapped_kmers, eng_kmer_coverage)
+
+        Notes
+        -----
+        Unclassified / empty LCA fields such as ``0:0`` (common for short or
+        fully unclassified reads) are treated as no evidence and return a
+        non-engineered empty result without running the window scan.
+        Tokens with non-positive counts are skipped.
         """
         empty = (False, 0, 0, 0, 0.0)
-        raw_data = kmer_pos_info.replace("|:|", "").split()
+        raw_data = kmer_pos_info.strip().replace("|:|", "").split()
         if not raw_data:
             return empty
 
@@ -301,26 +308,38 @@ class Workflow:
 
         max_minimizers = max(window_size - k - l + 2, 1)
         target_tid = "32630"
-        n = len(raw_data)
-        tids = np.zeros(n)
-        counts = np.zeros(n)
+        tid_list: list[int] = []
+        count_list: list[int] = []
         target_kmers = 0
         total_kmers_including_unmapped = 0
         total_mapped_kmers = 0
         try:
-            for i, item in enumerate(raw_data):
-                t, c = item.split(":", 1)
+            for item in raw_data:
+                t, c_raw = item.split(":", 1)
+                c = int(c_raw)
+                if c <= 0:
+                    # Kraken can emit ``0:0`` (and similar) for unclassified /
+                    # empty evidence; ignore zero-width tokens.
+                    continue
+                c_cap = min(c, max_minimizers)
                 if t == "A":
-                    tids[i] = -1
+                    tid_list.append(-1)
                 else:
-                    tids[i] = int(t)
-                    total_mapped_kmers += int(c)
-                total_kmers_including_unmapped += int(c)
-                counts[i] = min(int(c), max_minimizers)
+                    tid = int(t)
+                    tid_list.append(tid)
+                    # Taxid 0 = unclassified: count toward coverage denominator
+                    # only, not toward "mapped" n for the binomial test.
+                    if tid != 0:
+                        total_mapped_kmers += c
+                total_kmers_including_unmapped += c
+                count_list.append(c_cap)
                 if target_tid == t:
-                    target_kmers += counts[i]
+                    target_kmers += c_cap
 
         except (ValueError, IndexError, OverflowError):
+            return empty
+
+        if not tid_list:
             return empty
 
         coverage = (
@@ -328,8 +347,8 @@ class Workflow:
             if total_kmers_including_unmapped
             else 0.0
         )
-        tids = np.ascontiguousarray(tids, dtype=np.int64)
-        counts = np.ascontiguousarray(counts, dtype=np.int64)
+        tids = np.ascontiguousarray(tid_list, dtype=np.int64)
+        counts = np.ascontiguousarray(count_list, dtype=np.int64)
         try:
             hit, max_eng = fast_window_logic(tids, counts, window_size, threshold)
         except TypeError:
@@ -396,12 +415,14 @@ class Workflow:
         return False, max_eng_seen
 
     def entry_logic(self, entry: str, kmer_max_by_read, result):
-        categories = entry.split("\t")
+        categories = entry.rstrip("\n\r").split("\t")
         if len(categories) < 2:
             return 0.0, 0.0
+        kmer_field = categories[-1].strip() if len(categories) >= 5 else ""
         synthetic_boolean, max_eng, target_kmers, tot_kmers, eng_kmer_coverage = self.parse_and_run(
-            categories[-1], self.window_size, self.threshold, self.k, self.l)
+            kmer_field, self.window_size, self.threshold, self.k, self.l)
         read_id = categories[1]
+
         kmer_max_by_read[read_id] = max_eng
         if synthetic_boolean:
             result.synthetic_count += 1
