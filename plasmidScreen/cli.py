@@ -76,7 +76,7 @@ def screen(
                 "--threshold",
                 help="Threshold of required identified engineered DNA.",
             ),
-        ] = 10,
+        ] = 15,
         kmer_size: Annotated[
             int,
             typer.Option(
