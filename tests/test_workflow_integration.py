@@ -14,6 +14,52 @@ DIAMOND_LINES = [
 
 
 @patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
+def test_kmer_natural_unresolved_codon_host_stays_natural(
+    mock_diamond,
+    sample_fasta: Path,
+    sample_kraken_out: Path,
+    codon_store_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """K-mer Natural + DIAMOND host with no codon table → skip CAI, stay Natural in report."""
+    mock_diamond.return_value = (
+        ["read_natural_1\tref\t1\t99\t99.0\t33\t1e-5\t200\t99999\tUnknown\n"],
+        None,
+    )
+    report = tmp_path / "report.txt"
+    wf = Workflow(
+        str(sample_fasta),
+        1,
+        str(report),
+        kraken_db=str(tmp_path / "kraken_db"),
+        threads=1,
+        kraken_raw_output=str(sample_kraken_out),
+        codon_usage_dir=str(codon_store_dir),
+        run_kraken=False,
+        run_codon_usage=True,
+        codon_cai_engineered_threshold=0.5,
+        diamond_db=str(tmp_path / "diamond.dmnd"),
+    )
+    result = wf.run()
+    mock_diamond.assert_called_once()
+
+    # Codon step ran for Natural reads but produced no CAI for the unresolved host.
+    assert "read_natural_1" not in {r.read_id for r in result.codon_adaptation}
+
+    per = {r.read_id: r for r in result.per_read}
+    assert "read_natural_1" in per  # still in report
+    assert per["read_natural_1"].engineered_by_kmer_scan is False
+    assert per["read_natural_1"].cai_vs_host is None
+    assert per["read_natural_1"].engineered_by_codon_cai is None
+    assert per["read_natural_1"].engineered_overall is False
+    assert per["read_natural_1"].overall_label == "Natural"
+    assert "read_natural_1" not in result.engineered_read_ids
+
+    report_text = report.read_text()
+    assert "Natural\tread_natural_1" in report_text
+
+
+@patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
 def test_workflow_run_without_kraken(
     mock_diamond,
     sample_fasta: Path,

@@ -19,7 +19,8 @@ def configure_logging(
 
     Default: INFO milestones only (screen/map/viz complete, stage starts).
     ``verbose=True``: DEBUG (commands, timings, per-file writes).
-    ``quiet=True``: WARNING and above (progress bars suppressed separately).
+    ``quiet=True``: ERROR and above (warnings hidden; progress bars suppressed
+    separately via ``quiet_mode``).
 
     If both ``quiet`` and ``verbose`` are True, quiet wins.
     """
@@ -28,7 +29,7 @@ def configure_logging(
         return
 
     if quiet:
-        level = logging.WARNING
+        level = logging.ERROR
     elif verbose:
         level = logging.DEBUG
     else:

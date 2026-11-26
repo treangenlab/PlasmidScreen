@@ -283,7 +283,7 @@ def screen(
             typer.Option(
                 "--quiet",
                 "-q",
-                help="Suppress progress bars and INFO logs (warnings/errors only).",
+                help="Suppress progress bars and INFO/WARNING logs (errors only).",
             ),
         ] = False,
         verbose: Annotated[
@@ -655,7 +655,7 @@ def visualize(
             typer.Option(
                 "--quiet",
                 "-q",
-                help="Suppress INFO logs (warnings/errors only).",
+                help="Suppress INFO/WARNING logs (errors only).",
             ),
         ] = False,
         verbose: Annotated[
@@ -742,7 +742,7 @@ def prefetch_genbank(
             typer.Option(
                 "--quiet",
                 "-q",
-                help="Suppress INFO logs (warnings/errors only).",
+                help="Suppress INFO/WARNING logs (errors only).",
             ),
         ] = False,
         verbose: Annotated[
@@ -834,7 +834,7 @@ def build(
             False,
             "--quiet",
             "-q",
-            help="Suppress INFO logs (warnings/errors only).",
+            help="Suppress INFO/WARNING logs (errors only).",
         ),
         verbose: bool = typer.Option(
             False,

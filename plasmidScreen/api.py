@@ -41,6 +41,7 @@ from plasmidScreen.lib.models import (
     VisualizationReport,
 )
 from plasmidScreen.lib.types import GeneSet
+from plasmidScreen.lib.logging_util import configure_logging
 from plasmidScreen.src.plasmidScreen import Workflow
 from plasmidScreen.src.post_hit_analysis import post_analysis_report
 from plasmidScreen.lib.engineered_report import rewrite_engineered_report_if_present
@@ -93,7 +94,9 @@ def run_screen(
         pvalue_alpha: float = PVALUE_ALPHA,
 ) -> ScreenResult:
     """
-    Run engineered k-mer screening (Kraken2) and optional codon adaptation (DIAMOND + CSDB).
+    Run engineered k-mer screening (Kraken2) and optional codon adaptation
+    (DIAMOND + codon tables from CSDB/HIVE). Unresolved host taxids soft-skip CAI
+    (warning; k-mer label unchanged) instead of raising.
 
     Engineered detection uses Kraken2 minimizer blocks (taxid 32630) in a sliding
     window. A window hit counts toward the k-mer engineered call only when the
@@ -158,8 +161,9 @@ def run_screen(
     run_diamond
         Run DIAMOND blastx; if False, load precomputed TSV from ``diamond_output_path``.
     quiet_mode
-        If True (library default), suppress progress bars. Pair with logging level
-        WARNING+ for a quiet run; the CLI uses ``--quiet`` for both.
+        If True (library default), suppress progress bars and set logging to
+        ERROR+ (warnings such as unresolved codon hosts are hidden). Use
+        ``quiet_mode=False`` (or CLI without ``--quiet``) to see WARNING/INFO.
     memory_mode
         specify the memory configuration for deploying Plasmidscreen with a few discrete bins:
             low(0)    - 32GB  RAM
@@ -196,6 +200,10 @@ def run_screen(
                          "\nlow(0) <= 32GB  RAM "
                          "\nmedium(1) <= 64GB  RAM "
                          "\nhigh(2) <= 128GB RAM")
+    # Library quiet default: hide INFO/WARNING (soft-skip codon hosts, etc.).
+    # Only reconfigure when quiet so verbose/host logging is left alone.
+    if quiet_mode:
+        configure_logging(quiet=True, force=True)
     workflow = Workflow(
         fasta_file=str(fasta_file),
         seq_type=seq_type,

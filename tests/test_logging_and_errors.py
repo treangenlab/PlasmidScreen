@@ -21,14 +21,14 @@ def test_configure_logging_quiet_raises_level() -> None:
     configure_logging(quiet=False, force=True)
     assert logging.getLogger().level == logging.INFO
     configure_logging(quiet=True, force=True)
-    assert logging.getLogger().level == logging.WARNING
+    assert logging.getLogger().level == logging.ERROR
 
 
 def test_configure_logging_verbose_enables_debug() -> None:
     configure_logging(verbose=True, force=True)
     assert logging.getLogger().level == logging.DEBUG
     configure_logging(quiet=True, verbose=True, force=True)
-    assert logging.getLogger().level == logging.WARNING
+    assert logging.getLogger().level == logging.ERROR
 
 
 def test_open_text_maybe_gzip_missing_file(tmp_path: Path) -> None:

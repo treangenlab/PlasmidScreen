@@ -104,17 +104,17 @@ for r in screen_result.per_read_engineered:
 ### CLI — build reference (network required)
 
 ```bash
-# Default: import all taxids in the CSDB archive (~5.2 GB download on first run)
+# Default: CSDB (~5.2 GB) + CoCoPUTs/HIVE genomic fill (download on first run)
 plasmidscreen build
 # (or: python -m plasmidScreen build)
 
-# Use an existing CSDB archive (no download)
+# Use existing caches (no download)
 plasmidscreen build \
   --csdb-archive /data/codonstatsdb_March2022.tar.gz \
   --no-download-csdb
 
 ```
-The archive is cached under `~/.local/share/PlasmidScreen/` unless `--csdb-archive` is set.
+CSDB archive and HIVE `o537-genbank_species.tsv` are cached under `~/.local/share/PlasmidScreen/` unless `--csdb-archive` is set. HIVE import always uses genomic rows (`# CDS >= 1`) to fill gaps after CSDB.
 Output: `codon_usage/codon_tables.json` and `taxonomy_parents.json`.
 
 
