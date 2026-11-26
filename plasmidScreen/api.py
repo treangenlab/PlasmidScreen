@@ -529,9 +529,9 @@ def build_codon_database(
 
     Build the codon usage reference for CAI scoring. It attempts to use a
     taxids file if provided to grab the codon references. If none is provided, it imports
-    **every** taxid in the CSDB archive for ``gene_set``. Downloads CSDB archive if download_csdb is provided as true.
-    Writes ``codon_tables.json`` and optionally ``taxonomy_parents.json``
-    under ``output_dir`` (default: PlasmidScreen user data ``codon_usage/``).
+    **every** taxid in the CSDB archive for ``gene_set``, then fills gaps from the
+    CoCoPUTs/HIVE genomic species table. Downloads CSDB/HIVE caches when
+    ``download_csdb`` is true and files are missing.
     """
     data_dir = Path(output_dir) if output_dir else default_codon_usage_dir()
 

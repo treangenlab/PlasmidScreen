@@ -58,10 +58,13 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _save_json(path: Path, data: dict[str, Any]) -> None:
+    """Write JSON atomically (temp file + replace) so readers never see a partial file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as f:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w") as f:
         json.dump(data, f, indent=2, sort_keys=True)
         f.write("\n")
+    tmp.replace(path)
 
 
 class CodonUsageStore:
@@ -181,7 +184,11 @@ class CodonUsageStore:
         return sorted(set(missing))
 
     def require_host_taxids(self, host_taxids: Iterable[str | int]) -> None:
-        """Raise MissingCodonReferenceError if any host lacks a reference table."""
+        """Raise MissingCodonReferenceError if any host lacks a reference table.
+
+        Prefer soft-skipping unresolved hosts in screening pipelines; use this
+        for strict offline checks when every listed host must resolve.
+        """
         missing = self.missing_host_taxids(host_taxids)
         if missing:
             raise MissingCodonReferenceError(missing, str(self.data_dir))

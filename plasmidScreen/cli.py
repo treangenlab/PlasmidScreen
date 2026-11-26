@@ -843,7 +843,7 @@ def build(
             help="Show DEBUG logs (commands, timings, per-file writes).",
         ),
 ) -> None:
-    """Build codon usage tables from the Codon Statistics Database for CAI scoring."""
+    """Build codon usage tables from CSDB + CoCoPUTs/HIVE (genomic) for CAI scoring."""
     if quiet and verbose:
         raise typer.BadParameter("use either --quiet or --verbose, not both")
     configure_logging(quiet=quiet, verbose=verbose, force=True)
@@ -855,14 +855,13 @@ def build(
     if not quiet:
         if taxid_list:
             logger.info(
-                "Building codon reference at %s for %d taxid(s) from CSDB archive %s",
+                "Building codon reference at %s for %d taxid(s) from CSDB + HIVE",
                 data_dir,
                 len(taxid_list),
-                archive,
             )
         else:
             logger.info(
-                "Building codon reference at %s for all taxids in CSDB archive %s",
+                "Building codon reference at %s from CSDB archive %s + HIVE genomic fill",
                 data_dir,
                 archive,
             )

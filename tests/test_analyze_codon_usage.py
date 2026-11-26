@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-from plasmidScreen.lib.exceptions import MissingCodonReferenceError
 from plasmidScreen.lib.models import CodonAdaptationRead
 from plasmidScreen.src.analyze_codon_usage import (
     analyze_codon_adaptation,
@@ -146,23 +145,48 @@ def test_analyze_skips_reads_without_diamond_hits(
 
 
 @patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
-def test_missing_reference_raises(
+def test_unresolved_hosts_omitted_from_codon_results(
     mock_diamond,
     sample_fasta: Path,
     codon_store_dir: Path,
 ) -> None:
+    """No codon table → skip CAI; do not fail the screen."""
     mock_diamond.return_value = (
         ["read_natural_1\tref\t1\t99\t99.0\t33\t1e-5\t200\t99999\t\n"],
         None,
     )
-    with pytest.raises(MissingCodonReferenceError) as exc:
-        analyze_codon_adaptation(
-            sample_fasta,
-            diamond_db="db.dmnd",
-            codon_usage_dir=codon_store_dir,
-            include_read_ids={"read_natural_1"},
-        )
-    assert "99999" in exc.value.missing_host_taxids
+    results, _path = analyze_codon_adaptation(
+        sample_fasta,
+        diamond_db="db.dmnd",
+        codon_usage_dir=codon_store_dir,
+        include_read_ids={"read_natural_1"},
+    )
+    assert len(results) == 0
+
+
+@patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)
+def test_partial_missing_hosts_still_scores_resolvable(
+    mock_diamond,
+    sample_fasta: Path,
+    codon_store_dir: Path,
+) -> None:
+    """Unresolved hosts are dropped; resolvable hosts still get CAI."""
+    mock_diamond.return_value = (
+        [
+            "read_natural_1\tref\t1\t99\t99.0\t33\t1e-5\t200\t562\tEscherichia coli\n",
+            "read_synthetic_1\tref\t1\t99\t99.0\t33\t1e-5\t200\t99999\t\n",
+        ],
+        None,
+    )
+    results, _path = analyze_codon_adaptation(
+        sample_fasta,
+        diamond_db="db.dmnd",
+        codon_usage_dir=codon_store_dir,
+    )
+    by_id = {r.read_id: r for r in results}
+    assert set(by_id) == {"read_natural_1"}
+    assert by_id["read_natural_1"].cai_vs_host is not None
+    assert by_id["read_natural_1"].reference_taxid == "562"
 
 
 @patch("plasmidScreen.src.analyze_codon_usage.resolve_diamond_lines", autospec=True)

@@ -11,14 +11,19 @@ class InputError(PlasmidScreenError):
 
 
 class MissingCodonReferenceError(PlasmidScreenError):
-    """Raised when host taxids lack a pre-built codon usage reference (airgapped runs)."""
+    """Raised when no host taxid can be resolved to a codon usage reference."""
 
     def __init__(self, missing_host_taxids: list[str], data_dir: str) -> None:
         self.missing_host_taxids = missing_host_taxids
         self.data_dir = data_dir
+        preview = missing_host_taxids[:20]
+        more = len(missing_host_taxids) - len(preview)
+        taxid_part = str(preview) if more <= 0 else f"{preview} (+{more} more)"
         super().__init__(
-            f"No codon usage reference for host taxid(s) {missing_host_taxids} in {data_dir}. "
-            "Build the reference offline with build_codon_reference() before screening."
+            f"No codon usage reference for host taxid(s) {taxid_part} in {data_dir}. "
+            "CSDB covers a subset of NCBI taxa; ensure codon_tables.json is a full "
+            "build and taxonomy_parents.json is present for lineage fallback. "
+            "Rebuild offline with build_codon_reference() if the store is missing."
         )
 
 

@@ -82,14 +82,14 @@ if __name__ == "__main__":
     screen_result: ScreenResult = run_screen(
         fasta_file=reads,
         seq_type=1,
-        engineered_kmer_threshold=10,
+        engineered_kmer_threshold=40,
         kraken_db=str(kraken_db),
         engineered_report_path=str(report_path),
         threads=8,
         quiet_mode=False,
-        run_codon_usage=False,  # set True + diamond_db path to enable CAI
-        # diamond_db="/dodo/dbs/uniref_march_2025_with_tax.dmnd",
-        # codon_cai_threshold=0.6,
+        run_codon_usage=True,  # set True + diamond_db path to enable CAI
+        diamond_db="/dodo/dbs/uniref_march_2025_with_tax.dmnd",
+        codon_cai_engineered_threshold=0.6,
         memory_mode=0,
         background_rate=0.001,
     )

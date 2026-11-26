@@ -148,15 +148,15 @@ Directory (default: `~/.local/share/PlasmidScreen/codon_usage/`):
 
 | Input | Description |
 |-------|-------------|
-| *(none)* | CLI `build` with no taxid flags imports **every** taxid in the CSDB archive |
+| *(none)* | CLI `build` with no taxid flags imports **every** taxid in the CSDB archive, then fills gaps from HIVE |
 | `csdb_archive` | Path to `codonstatsdb_March2022.tar.gz` (default: PlasmidScreen data dir) |
-| `download_csdb` | If true and archive missing, download ~5.2 GB from [CSDB](http://codonstatsdb.unr.edu/) |
+| `download_csdb` | If true and caches missing, download CSDB (~5.2 GB) and CoCoPUTs/HIVE species TSV |
 | `taxids` / `taxids_file` | Subset of NCBI taxonomy IDs to import |
 | `kraken_output` | Optional; union of classified taxids from a Kraken file (build helper only) |
 | `include_taxonomy` | If true, download NCBI taxdump and write `taxonomy_parents.json` |
 | `gene_set` | CSDB table: `nuclear` (default), `ribosomal`, `mitochondrial`, or `plastid` |
 
-**Data source:** [Codon Statistics Database](http://codonstatsdb.unr.edu/) (RefSeq representative genomes, March 2022 snapshot). Build extracts `data/<taxid>/nuclear_codon_statistics.tsv` per species. Lineage resolution maps DIAMOND/Kraken taxids to the nearest CSDB entry via NCBI taxonomy.
+**Data sources:** (1) [Codon Statistics Database](http://codonstatsdb.unr.edu/) (RefSeq representative genomes, March 2022). (2) [CoCoPUTs/HIVE](https://dnahive.fda.gov/) genbank species table (`o537-genbank_species.tsv`); always imports **genomic** rows with `# CDS >= 1` to fill taxids missing from CSDB. Lineage resolution maps DIAMOND/Kraken taxids via NCBI taxonomy (`taxonomy_parents.json`).
 
 ---
 
@@ -423,10 +423,10 @@ Two layers:
 
 ### 4.4 Airgapped / reference errors
 
-| Condition | Exception |
-|-----------|-----------|
+| Condition | Exception / behavior |
+|-----------|----------------------|
 | `codon_tables.json` missing | `CodonReferenceNotFoundError` |
-| Host taxid not in store (no lineage match) | `MissingCodonReferenceError` |
+| Host taxid fails lineage match (CSDB/HIVE gaps) | Warning; read omitted from CAI / no Natural→engineered codon reclassification (k-mer call unchanged) |
 
 No network access occurs during `analyze_codon_adaptation` or `run_screen` codon steps.
 

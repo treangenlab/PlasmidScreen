@@ -347,24 +347,36 @@ def analyze_codon_adaptation(
             )
 
         host_taxids = {p[2] for p in pending if p[2] not in ("0", "")}
-        store.require_host_taxids(host_taxids)
+        missing = set(store.missing_host_taxids(host_taxids))
+        if missing:
+            preview = ", ".join(sorted(missing)[:10])
+            more = len(missing) - min(len(missing), 10)
+            suffix = f" (+{more} more)" if more > 0 else ""
+            # Soft-skip: no CAI → no Natural→engineered codon reclassification;
+            # overall label stays the engineered (k-mer) call for those reads.
+            logging.warning(
+                "No codon reference for %d/%d host taxid(s); skipping CAI for "
+                "those reads (k-mer classification unchanged). Examples: %s%s",
+                len(missing),
+                len(host_taxids),
+                preview,
+                suffix,
+            )
 
         results: CodonAdaptationResult = CodonAdaptationResult(labels=[])
+        n_skipped_unresolved = 0
         for read_id, cds, host_taxid in pending:
-            ref_taxid: Optional[str] = None
-            cai_score: Optional[float] = None
-            if host_taxid not in ("0", "") and len(cds["seq"]) >= 3:
-                ref_taxid = store.resolve_reference_taxid(host_taxid)
-                weights = store.get_cai_weights_for_host(host_taxid)
-                if weights:
-                    cai_score = compute_cai(cds["seq"], weights)
-                else:
-                    logging.warning(
-                        "No CAI weights for host taxid %s (read %s); CAI left unset",
-                        host_taxid,
-                        read_id,
-                    )
-
+            if host_taxid in missing or host_taxid in ("0", ""):
+                n_skipped_unresolved += 1
+                continue
+            if len(cds["seq"]) < 3:
+                continue
+            ref_taxid = store.resolve_reference_taxid(host_taxid)
+            weights = store.get_cai_weights_for_host(host_taxid)
+            if not weights:
+                n_skipped_unresolved += 1
+                continue
+            cai_score = compute_cai(cds["seq"], weights)
             results.labels.append(
                 CodonAdaptationRead(
                     read_id=read_id,
@@ -379,6 +391,11 @@ def analyze_codon_adaptation(
                 )
             )
 
+        if n_skipped_unresolved:
+            logging.debug(
+                "Codon CAI omitted %d read(s) with unresolved host taxids",
+                n_skipped_unresolved,
+            )
         logging.info("Codon CAI scored %d read(s)", len(results.labels))
         return results, diamond_path
     finally:
